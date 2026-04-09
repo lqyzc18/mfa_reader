@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"image/color"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -90,14 +92,31 @@ func loadMFAAccounts(myWindow fyne.Window) []MFAAccount {
 	return accounts
 }
 
-// LargeLabelTheme 自定义主题，仅用于放大 Label 的字体
-type LargeLabelTheme struct {
+// MFATheme 自定义主题，用于放大字体和动态改变进度条颜色
+type MFATheme struct {
 	fyne.Theme
+	primaryColor color.Color
+	lock         sync.RWMutex
 }
 
-func (m *LargeLabelTheme) Size(name fyne.ThemeSizeName) float32 {
+func (m *MFATheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+	if name == theme.ColorNamePrimary && m.primaryColor != nil {
+		return m.primaryColor
+	}
+	return m.Theme.Color(name, variant)
+}
+
+func (m *MFATheme) setPrimaryColor(c color.Color) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.primaryColor = c
+}
+
+func (m *MFATheme) Size(name fyne.ThemeSizeName) float32 {
 	if name == theme.SizeNameText {
-		return 32 // 设置为您想要的字体大小
+		return 32
 	}
 	return m.Theme.Size(name)
 }
@@ -136,6 +155,9 @@ func main() {
 	// 列表容器
 	listVBox := container.NewVBox()
 
+	// 全局主题实例，用于动态控制所有卡片内的颜色和字体大小
+	mfaTheme := &MFATheme{Theme: theme.DefaultTheme()}
+
 	// 重新渲染列表的方法，用于支持搜索过滤
 	renderList := func(filterText string) {
 		listVBox.Objects = nil
@@ -151,7 +173,6 @@ func main() {
 			codeStrBinding.Set("--- ---")
 
 			// 使用 widget.Label 代替 canvas.Text 以获得更好的线程安全性支持
-			// Fyne 的 Widget 在使用 DataBinding 时会自动处理线程问题
 			codeLabel := widget.NewLabelWithData(codeStrBinding)
 			codeLabel.Alignment = fyne.TextAlignCenter
 			codeLabel.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
@@ -177,18 +198,21 @@ func main() {
 				container.NewPadded(codeLabel),
 			)
 
-			// 应用局部主题来放大验证码文字
-			largeLabelContainer := container.NewThemeOverride(clickableCode, &LargeLabelTheme{Theme: theme.DefaultTheme()})
+			// 应用局部主题来放大验证码文字并支持动态主色调
+			largeLabelContainer := container.NewThemeOverride(clickableCode, mfaTheme)
 
 			progress := widget.NewProgressBar()
 			progress.TextFormatter = func() string { return "" }
 
+			// 进度条也需要应用局部主题以支持动态颜色
+			progressContainer := container.NewThemeOverride(progress, mfaTheme)
+
 			contentBox := container.NewVBox(
 				largeLabelContainer,
-				progress,
+				progressContainer,
 			)
 
-			// 使用 Fyne 自带的 Card 组件，自带阴影与圆角，看起来非常美观
+			// 使用 Fyne 自带的 Card 组件
 			card := widget.NewCard(acc.Name, "添加时间: "+acc.AddedTime, contentBox)
 
 			listVBox.Add(card)
@@ -229,12 +253,23 @@ func main() {
 			remaining := 30 - (now.Unix() % 30)
 			progressVal := float64(remaining) / 30.0
 
+			// 根据进度比例决定颜色
+			// > 60%: 绿色, > 40%: 黄色, <= 40%: 红色
+			var currentColor color.Color
+			if progressVal > 0.6 {
+				currentColor = color.RGBA{R: 76, G: 175, B: 80, A: 255} // Material Green
+			} else if progressVal > 0.2 {
+				currentColor = color.RGBA{R: 255, G: 193, B: 7, A: 255} // Material Amber/Yellow
+			} else {
+				currentColor = color.RGBA{R: 244, G: 67, B: 54, A: 255} // Material Red
+			}
+
+			// 更新全局主题颜色，使用互斥锁确保线程安全
+			mfaTheme.setPrimaryColor(currentColor)
+
 			for _, item := range updateItems {
 				code, err := totp.GenerateCode(item.secret, now)
 
-				// 使用 Fyne 的 Driver().RunOnMain() 确保 UI 更新在主线程执行
-				// 虽然 SetValue 和 Set 理论上是线程安全的，但在触发复杂的 canvas 刷新时
-				// 显式在主线程运行可以消除 "Error in Fyne call thread" 报错
 				it := item
 				val := "Error"
 				if err == nil {
@@ -245,10 +280,17 @@ func main() {
 					}
 				}
 
-				// 更新数据绑定和进度条
+				// 更新数据
 				it.codeBinding.Set(val)
 				it.progress.SetValue(progressVal)
 			}
+
+			// 刷新整个列表以应用新的主题颜色
+			// 注意：Refresh() 会触发绘制，必须在主线程中执行以避免报错
+			lBox := listVBox
+			time.AfterFunc(0, func() {
+				lBox.Refresh()
+			})
 		}
 	}()
 

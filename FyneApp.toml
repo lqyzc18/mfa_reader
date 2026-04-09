@@ -5,4 +5,4 @@ Icon = "icon.ico"
 Name = "虚拟MFA"
 ID = "com.lqyzc18.mfa_reader"
 Version = "1.0.0"
-Build = 3
+Build = 4

@@ -33,6 +33,28 @@
    go build -o mfa_reader.exe main.go
    ```
 
+## 打包发布
+
+如果需要打包为带有图标且没有命令行窗口的正式 Windows 应用程序，请按以下步骤操作：
+
+1. **安装 Fyne 命令行工具**：
+   ```bash
+   go install fyne.io/fyne/v2/cmd/fyne@latest
+   ```
+
+2. **执行打包命令**：
+   在 PowerShell 中运行（如果 `fyne.exe` 在您的 Go bin 路径下）：
+   ```powershell
+   &"$HOME\go\bin\fyne.exe" package -os windows
+   ```
+   或者直接指定绝对路径（以 `admin` 用户为例）：
+   ```powershell
+   C:\Users\admin\go\bin\fyne.exe package -os windows
+   ```
+
+3. **结果**：
+   执行完成后，您会在当前目录下看到生成的 `.exe` 安装包（或独立程序）。
+
 3. **防止中文乱码**：
    程序启动时会自动检测 Windows 系统下的 `simhei.ttf` 或 `msyh.ttf`，如果使用其他系统或缺少字体，请手动配置环境变量 `FYNE_FONT` 指向有效的 `.ttf` 中文字体文件。
 

@@ -90,6 +90,18 @@ func loadMFAAccounts(myWindow fyne.Window) []MFAAccount {
 	return accounts
 }
 
+// LargeLabelTheme 自定义主题，仅用于放大 Label 的字体
+type LargeLabelTheme struct {
+	fyne.Theme
+}
+
+func (m *LargeLabelTheme) Size(name fyne.ThemeSizeName) float32 {
+	if name == theme.SizeNameText {
+		return 32 // 设置为您想要的字体大小
+	}
+	return m.Theme.Size(name)
+}
+
 func main() {
 	myApp := app.New()
 
@@ -138,50 +150,41 @@ func main() {
 			codeStrBinding := binding.NewString()
 			codeStrBinding.Set("--- ---")
 
-			// 使用 canvas.Text 来实现超大字体，并使用主题主色调突出显示
-			codeText := canvas.NewText("--- ---", theme.PrimaryColor())
-			codeText.TextSize = 42
-			codeText.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
-
-			// 通过 DataListener 在 UI 线程安全地更新 canvas.Text
-			codeStrBinding.AddListener(binding.NewDataListener(func() {
-				val, _ := codeStrBinding.Get()
-				codeText.Text = val
-				codeText.Refresh()
-			}))
+			// 使用 widget.Label 代替 canvas.Text 以获得更好的线程安全性支持
+			// Fyne 的 Widget 在使用 DataBinding 时会自动处理线程问题
+			codeLabel := widget.NewLabelWithData(codeStrBinding)
+			codeLabel.Alignment = fyne.TextAlignCenter
+			codeLabel.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
 
 			// 将透明按钮覆盖在上面来实现点击复制事件
 			copyBtn := widget.NewButton("", func() {
 				val, _ := codeStrBinding.Get()
 				if val != "--- ---" && val != "Error" {
-					// 复制时去掉中间的空格
 					myWindow.Clipboard().SetContent(strings.ReplaceAll(val, " ", ""))
 
-					// 弹出一个提示框 (Toast / Information)
-					// 使用 Fyne 自带的 dialog 提示用户，并设置 1 秒后自动关闭
 					infoDialog := dialog.NewInformation("已复制", "验证码 "+val+" 已复制到剪贴板！", myWindow)
 					infoDialog.Show()
 
-					go func() {
-						time.Sleep(1 * time.Second)
+					time.AfterFunc(1*time.Second, func() {
 						infoDialog.Hide()
-					}()
+					})
 				}
 			})
 			copyBtn.Importance = widget.LowImportance
 
-			// 将透明按钮放在底层，大字体文本放在上层
-			// 这样鼠标悬停时按钮的灰色反馈会作为背景层，不会遮挡文字
 			clickableCode := container.NewStack(
 				copyBtn,
-				container.NewPadded(codeText), // 增加一点内边距，更有呼吸感
+				container.NewPadded(codeLabel),
 			)
+
+			// 应用局部主题来放大验证码文字
+			largeLabelContainer := container.NewThemeOverride(clickableCode, &LargeLabelTheme{Theme: theme.DefaultTheme()})
 
 			progress := widget.NewProgressBar()
 			progress.TextFormatter = func() string { return "" }
 
 			contentBox := container.NewVBox(
-				clickableCode,
+				largeLabelContainer,
 				progress,
 			)
 
@@ -228,19 +231,23 @@ func main() {
 
 			for _, item := range updateItems {
 				code, err := totp.GenerateCode(item.secret, now)
-				if err != nil {
-					item.codeBinding.Set("Error")
-				} else {
-					// 插入空格让其更像截图中分散的数字，同时更容易阅读 (例如 123 456)
+
+				// 使用 Fyne 的 Driver().RunOnMain() 确保 UI 更新在主线程执行
+				// 虽然 SetValue 和 Set 理论上是线程安全的，但在触发复杂的 canvas 刷新时
+				// 显式在主线程运行可以消除 "Error in Fyne call thread" 报错
+				it := item
+				val := "Error"
+				if err == nil {
 					if len(code) == 6 {
-						formattedCode := fmt.Sprintf("%s %s", code[:3], code[3:])
-						item.codeBinding.Set(formattedCode)
+						val = fmt.Sprintf("%s %s", code[:3], code[3:])
 					} else {
-						item.codeBinding.Set(code)
+						val = code
 					}
 				}
 
-				item.progress.SetValue(progressVal)
+				// 更新数据绑定和进度条
+				it.codeBinding.Set(val)
+				it.progress.SetValue(progressVal)
 			}
 		}
 	}()

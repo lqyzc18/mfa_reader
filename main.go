@@ -11,6 +11,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/data/binding"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/duke-git/lancet/v2/datetime"
@@ -18,6 +19,18 @@ import (
 	"github.com/duke-git/lancet/v2/strutil"
 	"github.com/pquerna/otp/totp"
 )
+
+// 加载图标
+func loadIcon() fyne.Resource {
+	iconPath := "icon.ico"
+	if fileutil.IsExist(iconPath) {
+		r, err := fyne.LoadResourceFromPath(iconPath)
+		if err == nil {
+			return r
+		}
+	}
+	return theme.FyneLogo()
+}
 
 type MFAAccount struct {
 	Name      string
@@ -40,7 +53,7 @@ func init() {
 	}
 }
 
-func loadMFAAccounts() []MFAAccount {
+func loadMFAAccounts(myWindow fyne.Window) []MFAAccount {
 	var accounts []MFAAccount
 	filePath := "mfa.txt"
 
@@ -79,10 +92,14 @@ func loadMFAAccounts() []MFAAccount {
 
 func main() {
 	myApp := app.New()
+
+	// 设置应用程序的图标
+	myApp.SetIcon(loadIcon())
+
 	myWindow := myApp.NewWindow("虚拟MFA")
 	myWindow.Resize(fyne.NewSize(400, 700))
 
-	accounts := loadMFAAccounts()
+	accounts := loadMFAAccounts(myWindow)
 
 	// 1. 顶部标题栏
 	title := canvas.NewText("虚拟MFA", theme.ForegroundColor())
@@ -139,14 +156,25 @@ func main() {
 				if val != "--- ---" && val != "Error" {
 					// 复制时去掉中间的空格
 					myWindow.Clipboard().SetContent(strings.ReplaceAll(val, " ", ""))
+
+					// 弹出一个提示框 (Toast / Information)
+					// 使用 Fyne 自带的 dialog 提示用户，并设置 1 秒后自动关闭
+					infoDialog := dialog.NewInformation("已复制", "验证码 "+val+" 已复制到剪贴板！", myWindow)
+					infoDialog.Show()
+
+					go func() {
+						time.Sleep(1 * time.Second)
+						infoDialog.Hide()
+					}()
 				}
 			})
 			copyBtn.Importance = widget.LowImportance
 
-			// 将大字体文本和透明按钮叠放在一起
+			// 将透明按钮放在底层，大字体文本放在上层
+			// 这样鼠标悬停时按钮的灰色反馈会作为背景层，不会遮挡文字
 			clickableCode := container.NewStack(
-				container.NewPadded(codeText), // 增加一点内边距，更有呼吸感
 				copyBtn,
+				container.NewPadded(codeText), // 增加一点内边距，更有呼吸感
 			)
 
 			progress := widget.NewProgressBar()

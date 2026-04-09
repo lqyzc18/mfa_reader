@@ -267,10 +267,16 @@ func main() {
 			// 更新全局主题颜色，使用互斥锁确保线程安全
 			mfaTheme.setPrimaryColor(currentColor)
 
-			for _, item := range updateItems {
-				code, err := totp.GenerateCode(item.secret, now)
+			// 在后台计算所有验证码
+			type updateInfo struct {
+				item *updateItem
+				val  string
+			}
+			var infos []updateInfo
 
-				it := item
+			for i := range updateItems {
+				item := &updateItems[i]
+				code, err := totp.GenerateCode(item.secret, now)
 				val := "Error"
 				if err == nil {
 					if len(code) == 6 {
@@ -279,17 +285,18 @@ func main() {
 						val = code
 					}
 				}
-
-				// 更新数据
-				it.codeBinding.Set(val)
-				it.progress.SetValue(progressVal)
+				infos = append(infos, updateInfo{item: item, val: val})
 			}
 
-			// 刷新整个列表以应用新的主题颜色
-			// 注意：Refresh() 会触发绘制，必须在主线程中执行以避免报错
-			lBox := listVBox
-			time.AfterFunc(0, func() {
-				lBox.Refresh()
+			// 使用 fyne.Do() 统一在主 UI 线程中执行所有更新操作
+			fyne.Do(func() {
+				// 更新所有项的数据和进度条
+				for _, info := range infos {
+					info.item.codeBinding.Set(info.val)
+					info.item.progress.SetValue(progressVal)
+				}
+				// 刷新整个列表以应用新的主题颜色
+				listVBox.Refresh()
 			})
 		}
 	}()

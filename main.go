@@ -187,7 +187,9 @@ func main() {
 					infoDialog.Show()
 
 					time.AfterFunc(1*time.Second, func() {
-						infoDialog.Hide()
+						fyne.Do(func() {
+							infoDialog.Hide()
+						})
 					})
 				}
 			})

@@ -40,6 +40,13 @@ type MFAAccount struct {
 	Secret    string
 }
 
+func normalizeSecret(secret string) string {
+	s := strings.ToUpper(secret)
+	s = strings.ReplaceAll(s, " ", "")
+	s = strings.ReplaceAll(s, "-", "")
+	return s
+}
+
 func init() {
 	// 强制应用亮色主题，看起来更整洁
 	os.Setenv("FYNE_THEME", "light")
@@ -278,7 +285,7 @@ func main() {
 
 			for i := range updateItems {
 				item := &updateItems[i]
-				code, err := totp.GenerateCode(item.secret, now)
+				code, err := totp.GenerateCode(normalizeSecret(item.secret), now)
 				val := "Error"
 				if err == nil {
 					if len(code) == 6 {

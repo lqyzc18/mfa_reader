@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"image/color"
 	"os"
@@ -18,9 +19,10 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/duke-git/lancet/v2/datetime"
 	"github.com/duke-git/lancet/v2/fileutil"
-	"github.com/duke-git/lancet/v2/strutil"
 	"github.com/pquerna/otp/totp"
 )
+
+const base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
 // 加载图标
 func loadIcon() fyne.Resource {
@@ -35,21 +37,19 @@ func loadIcon() fyne.Resource {
 }
 
 type MFAAccount struct {
-	Name      string
-	AddedTime string
-	Secret    string
-}
-
-func normalizeSecret(secret string) string {
-	s := strings.ToUpper(secret)
-	s = strings.ReplaceAll(s, " ", "")
-	s = strings.ReplaceAll(s, "-", "")
-	return s
+	AccountName string `json:"accountName"`
+	Time        int64  `json:"time"`
+	Secret      string `json:"secret"`
 }
 
 func init() {
-	// 强制应用亮色主题，看起来更整洁
 	os.Setenv("FYNE_THEME", "light")
+
+	if tz := os.Getenv("TZ"); tz == "" {
+		if loc, err := time.LoadLocation("Local"); err == nil {
+			time.Local = loc
+		}
+	}
 
 	fontPath := "C:\\Windows\\Fonts\\simhei.ttf"
 	if fileutil.IsExist(fontPath) {
@@ -64,7 +64,7 @@ func init() {
 
 func loadMFAAccounts(myWindow fyne.Window) []MFAAccount {
 	var accounts []MFAAccount
-	filePath := "mfa.txt"
+	filePath := "mfa.json"
 
 	if !fileutil.IsExist(filePath) {
 		return accounts
@@ -75,25 +75,33 @@ func loadMFAAccounts(myWindow fyne.Window) []MFAAccount {
 		return accounts
 	}
 
-	lines := strutil.SplitAndTrim(content, "\n")
-	for _, line := range lines {
-		if line == "" {
-			continue
+	content = strings.TrimSpace(content)
+	if strings.HasPrefix(content, "[") {
+		var jsonAccounts []MFAAccount
+		if err := json.Unmarshal([]byte(content), &jsonAccounts); err == nil {
+			accounts = jsonAccounts
 		}
-		parts := strings.Split(line, ",")
-		if len(parts) >= 3 {
-			accounts = append(accounts, MFAAccount{
-				Name:      parts[0],
-				AddedTime: parts[1],
-				Secret:    parts[2],
-			})
-		} else if len(parts) == 2 {
-			nowStr := datetime.FormatTimeToStr(time.Now(), "yyyy-mm-dd hh:mm:ss")
-			accounts = append(accounts, MFAAccount{
-				Name:      parts[0],
-				AddedTime: nowStr,
-				Secret:    parts[1],
-			})
+	} else {
+		lines := strings.Split(content, "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			parts := strings.Split(line, ",")
+			if len(parts) >= 3 {
+				accounts = append(accounts, MFAAccount{
+					AccountName: parts[0],
+					Time:        time.Now().UnixMilli(),
+					Secret:      parts[2],
+				})
+			} else if len(parts) == 2 {
+				accounts = append(accounts, MFAAccount{
+					AccountName: parts[0],
+					Time:        time.Now().UnixMilli(),
+					Secret:      parts[1],
+				})
+			}
 		}
 	}
 	return accounts
@@ -172,7 +180,7 @@ func main() {
 
 		for _, acc := range accounts {
 			// 如果 filterText 不为空且名字不包含 filterText，则跳过
-			if filterText != "" && !strings.Contains(strings.ToLower(acc.Name), strings.ToLower(filterText)) {
+			if filterText != "" && !strings.Contains(acc.AccountName, filterText) {
 				continue
 			}
 
@@ -222,14 +230,19 @@ func main() {
 			)
 
 			// 使用 Fyne 自带的 Card 组件
-			card := widget.NewCard(acc.Name, "添加时间: "+acc.AddedTime, contentBox)
+			addedTimeStr := datetime.FormatTimeToStr(time.UnixMilli(acc.Time), "yyyy-mm-dd hh:mm:ss")
+			card := widget.NewCard(acc.AccountName, "添加时间: "+addedTimeStr, contentBox)
 
 			listVBox.Add(card)
 
+			secretStr := strings.ToUpper(strings.TrimSpace(acc.Secret))
+			secretStr = strings.ReplaceAll(secretStr, " ", "")
+			secretStr = strings.ReplaceAll(secretStr, "-", "")
+			secretStr = strings.TrimRight(secretStr, "=")
 			updateItems = append(updateItems, updateItem{
 				codeBinding: codeStrBinding,
 				progress:    progress,
-				secret:      acc.Secret,
+				secret:      secretStr,
 			})
 		}
 		listVBox.Refresh()
@@ -285,7 +298,7 @@ func main() {
 
 			for i := range updateItems {
 				item := &updateItems[i]
-				code, err := totp.GenerateCode(normalizeSecret(item.secret), now)
+				code, err := totp.GenerateCode(item.secret, now)
 				val := "Error"
 				if err == nil {
 					if len(code) == 6 {

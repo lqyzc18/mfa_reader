@@ -10,21 +10,20 @@
 - **实时刷新**: 实时同步时间并更新验证码（30秒一个周期）。
 - **一键复制与提示**: 点击显示的验证码数字即可自动复制，并弹出 1 秒自动关闭的复制成功提示。
 - **搜索过滤**: 支持顶部输入框实时模糊搜索。
-- **配置轻量**: 直接读取同级目录下的 `mfa.txt` 文件即可加载账号信息。
+- **配置轻量**: 直接读取同级目录下的 `mfa.json` 文件即可加载账号信息。
 - **线程安全**: 针对 Fyne 2.7+ 的 UI 线程检查进行了深度优化，确保在高频刷新下运行稳定。
 
 ## 运行与使用
 
-1. 在项目根目录创建 `mfa.txt` 文件，格式为：
-   ```text
-   名称,添加时间,Base32格式的Secret
-   ```
-   *注意：如果缺失添加时间，程序将自动以当前时间补全。*
-
-   示例：
-   ```text
-   Example_Service:test_user,2026-01-01 12:00:00,JBSWY3DPEHPK3PXP
-   Another_App:user@example.com,2026-01-02 14:30:00,HXDMVJECJJWSRB3HWIZR4IFUGFTMXBOZ
+1. 在项目根目录创建 `mfa.json` 文件，格式为：
+   ```json
+   [
+     {
+       "accountName": "Example_Service:test_user",
+       "time": 1735689600000,
+       "secret": "JBSWY3DPEHPK3PXP"
+     }
+   ]
    ```
 
 2. 运行或编译：

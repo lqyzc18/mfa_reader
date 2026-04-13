@@ -45,7 +45,7 @@ func main() {
 	// 加载账号数据
 	accounts := storage.LoadMFAAccounts()
 
-	// 初始化主界面
+	// 初始化主界面（传递停止 channel）
 	ui.SetupMainWindow(myWindow, accounts)
 
 	myWindow.ShowAndRun()

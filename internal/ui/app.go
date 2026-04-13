@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -21,6 +22,19 @@ import (
 )
 
 func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
+	// 停止 channel
+	stopCh := make(chan struct{})
+
+	// 窗口关闭标志
+	var windowClosed atomic.Bool
+	windowClosed.Store(false)
+
+	// 监听窗口关闭事件
+	myWindow.SetOnClosed(func() {
+		windowClosed.Store(true)
+		close(stopCh)
+	})
+
 	// 1. 顶部标题栏
 	title := canvas.NewText("虚拟MFA", fyneTheme.ForegroundColor())
 	title.TextSize = 24
@@ -52,11 +66,12 @@ func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
 	mfaTheme := theme.NewMFATheme()
 
 	// 重新渲染列表的方法，用于支持搜索过滤
-	renderList := func(filterText string) {
+	var renderList func(filterText string)
+	renderList = func(filterText string) {
 		listVBox.Objects = nil
 		updateItems = nil
 
-		for i, acc := range accounts {
+		for _, acc := range accounts {
 			// 如果 filterText 不为空且名字不包含 filterText，则跳过
 			if filterText != "" && !strings.Contains(acc.AccountName, filterText) {
 				continue
@@ -81,7 +96,9 @@ func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
 
 					time.AfterFunc(1*time.Second, func() {
 						fyne.Do(func() {
-							infoDialog.Hide()
+							if !windowClosed.Load() {
+								infoDialog.Hide()
+							}
 						})
 					})
 				}
@@ -103,17 +120,20 @@ func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
 			progressContainer := container.NewThemeOverride(progress, mfaTheme)
 
 			// 删除按钮
-			currentIndex := i // 捕获循环变量
 			currentAcc := acc
 			deleteBtn := widget.NewButtonWithIcon("", fyneTheme.DeleteIcon(), func() {
 				dialog.ShowConfirm("删除确认", "确定要删除账号 "+currentAcc.AccountName+" 吗？", func(b bool) {
 					if b {
-						// 从 accounts 中删除
-						newAccounts := append(accounts[:currentIndex], accounts[currentIndex+1:]...)
-						accounts = newAccounts
+						// 找到当前账号的索引并删除
+						for i, acc := range accounts {
+							if acc.AccountName == currentAcc.AccountName && acc.Secret == currentAcc.Secret {
+								accounts = append(accounts[:i], accounts[i+1:]...)
+								break
+							}
+						}
 						storage.SaveMFAAccounts(accounts)
 						// 重新渲染列表
-						searchEntry.SetText("")
+						renderList("")
 					}
 				}, myWindow)
 			})
@@ -180,56 +200,62 @@ func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
 	// 定时更新器
 	go func() {
 		ticker := time.NewTicker(time.Second)
-		for range ticker.C {
-			now := time.Now()
-			remaining := 30 - (now.Unix() % 30)
-			progressVal := float64(remaining) / 30.0
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopCh:
+				return
+			case <-ticker.C:
+				now := time.Now()
+				remaining := 30 - (now.Unix() % 30)
+				progressVal := float64(remaining) / 30.0
 
-			// 根据进度比例决定颜色
-			// > 60%: 绿色, > 40%: 黄色, <= 40%: 红色
-			var currentColor color.Color
-			if progressVal > 0.6 {
-				currentColor = color.RGBA{R: 76, G: 175, B: 80, A: 255} // Material Green
-			} else if progressVal > 0.2 {
-				currentColor = color.RGBA{R: 255, G: 193, B: 7, A: 255} // Material Amber/Yellow
-			} else {
-				currentColor = color.RGBA{R: 244, G: 67, B: 54, A: 255} // Material Red
-			}
+				// 根据进度比例决定颜色
+				// > 60%: 绿色, > 40%: 黄色, <= 40%: 红色
+				var currentColor color.Color
+				if progressVal > 0.6 {
+					currentColor = color.RGBA{R: 76, G: 175, B: 80, A: 255} // Material Green
+				} else if progressVal > 0.2 {
+					currentColor = color.RGBA{R: 255, G: 193, B: 7, A: 255} // Material Amber/Yellow
+				} else {
+					currentColor = color.RGBA{R: 244, G: 67, B: 54, A: 255} // Material Red
+				}
 
-			// 更新全局主题颜色，使用互斥锁确保线程安全
-			mfaTheme.SetPrimaryColor(currentColor)
+				// 更新全局主题颜色，使用互斥锁确保线程安全
+				mfaTheme.SetPrimaryColor(currentColor)
 
-			// 在后台计算所有验证码
-			type updateInfo struct {
-				item *updateItem
-				val  string
-			}
-			var infos []updateInfo
+				// 在后台计算所有验证码
+				type updateInfo struct {
+					item *updateItem
+					val  string
+				}
+				var infos []updateInfo
 
-			for i := range updateItems {
-				item := &updateItems[i]
-				code, err := totp.GenerateCode(item.secret, now)
-				val := "Error"
-				if err == nil {
-					if len(code) == 6 {
-						val = fmt.Sprintf("%s %s", code[:3], code[3:])
-					} else {
-						val = code
+				for i := range updateItems {
+					item := &updateItems[i]
+					code, err := totp.GenerateCode(item.secret, now)
+					val := "Error"
+					if err == nil {
+						if len(code) == 6 {
+							val = fmt.Sprintf("%s %s", code[:3], code[3:])
+						} else {
+							val = code
+						}
 					}
+					infos = append(infos, updateInfo{item: item, val: val})
 				}
-				infos = append(infos, updateInfo{item: item, val: val})
-			}
 
-			// 使用 fyne.Do() 统一在主 UI 线程中执行所有更新操作
-			fyne.Do(func() {
-				// 更新所有项的数据和进度条
-				for _, info := range infos {
-					info.item.codeBinding.Set(info.val)
-					info.item.progress.SetValue(progressVal)
-				}
-				// 刷新整个列表以应用新的主题颜色
-				listVBox.Refresh()
-			})
+				// 使用 fyne.Do() 统一在主 UI 线程中执行所有更新操作
+				fyne.Do(func() {
+					// 更新所有项的数据和进度条
+					for _, info := range infos {
+						info.item.codeBinding.Set(info.val)
+						info.item.progress.SetValue(progressVal)
+					}
+					// 刷新整个列表以应用新的主题颜色
+					listVBox.Refresh()
+				})
+			}
 		}
 	}()
 }

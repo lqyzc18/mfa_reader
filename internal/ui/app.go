@@ -35,22 +35,27 @@ func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
 		close(stopCh)
 	})
 
-	// 1. 顶部标题栏
-	title := canvas.NewText("虚拟MFA", fyneTheme.ForegroundColor())
-	title.TextSize = 24
+	// 1. 顶部标题栏 - 现代化设计
+	headerBg := canvas.NewRectangle(theme.PrimaryBlue)
+	headerBg.CornerRadius = 0
+
+	title := canvas.NewText("虚拟MFA", color.White)
+	title.TextSize = 26
 	title.TextStyle = fyne.TextStyle{Bold: true}
 	title.Alignment = fyne.TextAlignCenter
 
-	subtitle := canvas.NewText("您的两步验证码", fyneTheme.PlaceHolderColor())
-	subtitle.TextSize = 12
+	subtitle := canvas.NewText("您的两步验证码", color.RGBA{R: 255, G: 255, B: 255, A: 200})
+	subtitle.TextSize = 13
 	subtitle.Alignment = fyne.TextAlignCenter
 
-	navBar := container.NewPadded(container.NewVBox(title, subtitle))
+	titleContainer := container.NewVBox(title, subtitle)
+	navBar := container.NewStack(headerBg, container.NewPadded(titleContainer))
 
 	searchEntry := widget.NewEntry()
 	searchEntry.SetPlaceHolder("搜索账号...")
 	searchEntry.ActionItem = widget.NewIcon(fyneTheme.SearchIcon())
 	searchEntry.Validator = nil
+	searchEntry.TextStyle = fyne.TextStyle{Monospace: false}
 
 	type updateItem struct {
 		codeBinding binding.String
@@ -91,10 +96,11 @@ func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
 				if val != "--- ---" && val != "Error" {
 					myWindow.Clipboard().SetContent(strings.ReplaceAll(val, " ", ""))
 
-					infoDialog := dialog.NewInformation("已复制", "验证码 "+val+" 已复制到剪贴板！", myWindow)
+					// 现代化提示框
+					infoDialog := dialog.NewInformation("✓ 已复制", "验证码 "+val+" 已复制到剪贴板！", myWindow)
 					infoDialog.Show()
 
-					time.AfterFunc(1*time.Second, func() {
+					time.AfterFunc(800*time.Millisecond, func() {
 						fyne.Do(func() {
 							if !windowClosed.Load() {
 								infoDialog.Hide()
@@ -119,10 +125,10 @@ func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
 			// 进度条也需要应用局部主题以支持动态颜色
 			progressContainer := container.NewThemeOverride(progress, mfaTheme)
 
-			// 删除按钮
+			// 删除按钮 - 现代化设计
 			currentAcc := acc
 			deleteBtn := widget.NewButtonWithIcon("", fyneTheme.DeleteIcon(), func() {
-				dialog.ShowConfirm("删除确认", "确定要删除账号 "+currentAcc.AccountName+" 吗？", func(b bool) {
+				dialog.ShowConfirm("⚠ 删除确认", "确定要删除账号 "+currentAcc.AccountName+" 吗？", func(b bool) {
 					if b {
 						// 找到当前账号的索引并删除
 						for i, acc := range accounts {
@@ -149,8 +155,12 @@ func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
 				progressContainer,
 			)
 
-			// 使用 Fyne 自带的 Card 组件，并用 Padded 包裹增加间距
-			card := widget.NewCard("", "", contentBox)
+			// 现代化卡片设计 - 使用圆角矩形
+			cardBg := canvas.NewRectangle(theme.CardBg)
+			cardBg.CornerRadius = 12
+			cardBg.SetMinSize(fyne.NewSize(380, 0))
+
+			card := container.NewMax(cardBg, container.NewPadded(contentBox))
 			listVBox.Add(container.NewPadded(card))
 
 			secretStr := strings.ToUpper(strings.TrimSpace(currentAcc.Secret))
@@ -170,6 +180,7 @@ func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
 		showAddAccountDialog(myWindow, &accounts, renderList)
 	})
 	addBtn.Importance = widget.HighImportance
+	addBtn.Resize(fyne.NewSize(80, 36))
 
 	// 初始渲染
 	renderList("")
@@ -181,16 +192,21 @@ func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
 
 	scrollList := container.NewVScroll(listVBox)
 
-	// 主布局 - 添加按钮和搜索框放在同一行
-	topBar := container.NewPadded(container.NewBorder(
+	// 主布局 - 现代化设计
+	searchContainer := container.NewPadded(searchEntry)
+	searchContainer.Resize(fyne.NewSize(280, 40))
+
+	topBar := container.NewBorder(
 		nil, nil,
 		nil,
 		addBtn,
-		searchEntry,
-	))
+		searchContainer,
+	)
+
+	topBarContainer := container.NewPadded(topBar)
 
 	mainContent := container.NewBorder(
-		container.NewVBox(navBar, topBar, widget.NewSeparator()),
+		container.NewVBox(navBar, topBarContainer),
 		nil, nil, nil,
 		scrollList,
 	)
@@ -210,16 +226,8 @@ func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
 				remaining := 30 - (now.Unix() % 30)
 				progressVal := float64(remaining) / 30.0
 
-				// 根据进度比例决定颜色
-				// > 60%: 绿色, > 40%: 黄色, <= 40%: 红色
-				var currentColor color.Color
-				if progressVal > 0.6 {
-					currentColor = color.RGBA{R: 76, G: 175, B: 80, A: 255} // Material Green
-				} else if progressVal > 0.2 {
-					currentColor = color.RGBA{R: 255, G: 193, B: 7, A: 255} // Material Amber/Yellow
-				} else {
-					currentColor = color.RGBA{R: 244, G: 67, B: 54, A: 255} // Material Red
-				}
+				// 根据进度比例决定颜色 - 使用主题颜色方案
+				currentColor := theme.GetProgressColor(progressVal)
 
 				// 更新全局主题颜色，使用互斥锁确保线程安全
 				mfaTheme.SetPrimaryColor(currentColor)

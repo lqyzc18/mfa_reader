@@ -24,10 +24,9 @@ func showAddAccountDialog(myWindow fyne.Window, accounts *[]model.MFAAccount, re
 		widget.NewFormItem("密　　钥", secretEntry),
 	)
 
-	// 增加一些内边距让界面更好看
 	content := container.NewPadded(form)
 
-	d := dialog.NewCustomConfirm("添加 MFA 账号", "添加", "取消", content, func(ok bool) {
+	d := dialog.NewCustomConfirm("➕ 添加 MFA 账号", "添加", "取消", content, func(ok bool) {
 		if !ok {
 			return
 		}
@@ -36,7 +35,7 @@ func showAddAccountDialog(myWindow fyne.Window, accounts *[]model.MFAAccount, re
 		secret := strings.TrimSpace(secretEntry.Text)
 
 		if accountName == "" || secret == "" {
-			dialog.NewInformation("错误", "账号名称和密钥不能为空", myWindow).Show()
+			dialog.NewInformation("❌ 错误", "账号名称和密钥不能为空", myWindow).Show()
 			return
 		}
 
@@ -45,7 +44,7 @@ func showAddAccountDialog(myWindow fyne.Window, accounts *[]model.MFAAccount, re
 		secret = strings.TrimRight(secret, "=")
 
 		if len(secret) < 16 {
-			dialog.NewInformation("错误", "密钥长度不足，请检查是否输入正确", myWindow).Show()
+			dialog.NewInformation("❌ 错误", "密钥长度不足，请检查是否输入正确", myWindow).Show()
 			return
 		}
 
@@ -56,13 +55,13 @@ func showAddAccountDialog(myWindow fyne.Window, accounts *[]model.MFAAccount, re
 		})
 
 		if err := storage.SaveMFAAccounts(*accounts); err != nil {
-			dialog.NewInformation("错误", "保存失败: "+err.Error(), myWindow).Show()
+			dialog.NewInformation("❌ 错误", "保存失败: "+err.Error(), myWindow).Show()
 			return
 		}
 
 		renderList("")
 	}, myWindow)
 
-	d.Resize(fyne.NewSize(320, 200)) // 适当加宽弹窗，避免输入框太窄
+	d.Resize(fyne.NewSize(340, 220))
 	d.Show()
 }

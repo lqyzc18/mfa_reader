@@ -218,10 +218,16 @@ func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for {
+			// 使用非阻塞select监听stopCh，防止channel关闭后的panic
 			select {
 			case <-stopCh:
 				return
 			case <-ticker.C:
+				// 在窗口已关闭时跳过更新
+				if windowClosed.Load() {
+					return
+				}
+
 				now := time.Now()
 				remaining := 30 - (now.Unix() % 30)
 				progressVal := float64(remaining) / 30.0
@@ -254,7 +260,15 @@ func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
 				}
 
 				// 使用 fyne.Do() 统一在主 UI 线程中执行所有更新操作
+				// 先检查窗口是否已关闭
+				if windowClosed.Load() {
+					return
+				}
 				fyne.Do(func() {
+					// 再次检查窗口状态，防止在fyne.Do执行时窗口已关闭
+					if windowClosed.Load() {
+						return
+					}
 					// 更新所有项的数据和进度条
 					for _, info := range infos {
 						info.item.codeBinding.Set(info.val)

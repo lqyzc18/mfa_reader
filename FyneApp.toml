@@ -4,5 +4,5 @@ Website = "https://github.com/lqyzc18/"
 Icon = "icon.png"
 Name = "虚拟MFA"
 ID = "com.lqyzc18.mfa_reader"
-Version = "1.0.0"
-Build = 9
+Version = "2.1.0"
+Build = 11

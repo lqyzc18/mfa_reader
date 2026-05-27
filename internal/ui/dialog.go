@@ -2,17 +2,17 @@ package ui
 
 import (
 	"strings"
-	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
+
 	"mfa_reader/internal/model"
 	"mfa_reader/internal/storage"
 )
 
-func showAddAccountDialog(myWindow fyne.Window, accounts *[]model.MFAAccount, renderList func(string)) {
+func showAddAccountDialog(ctx *appContext) {
 	nameEntry := widget.NewEntry()
 	nameEntry.SetPlaceHolder("例如: Google")
 
@@ -35,32 +35,31 @@ func showAddAccountDialog(myWindow fyne.Window, accounts *[]model.MFAAccount, re
 		secret := strings.TrimSpace(secretEntry.Text)
 
 		if accountName == "" || secret == "" {
-			dialog.NewInformation("❌ 错误", "账号名称和密钥不能为空", myWindow).Show()
+			dialog.NewInformation("❌ 错误", "账号名称和密钥不能为空", ctx.window).Show()
 			return
 		}
 
-		secret = strings.ToUpper(strings.ReplaceAll(secret, " ", ""))
-		secret = strings.ReplaceAll(secret, "-", "")
-		secret = strings.TrimRight(secret, "=")
-
-		if len(secret) < 16 {
-			dialog.NewInformation("❌ 错误", "密钥长度不足，请检查是否输入正确", myWindow).Show()
-			return
-		}
-
-		*accounts = append(*accounts, model.MFAAccount{
+		acc := model.MFAAccount{
 			AccountName: accountName,
-			Time:        time.Now().UnixMilli(),
 			Secret:      secret,
-		})
+		}
+		normalized := acc.NormalizeSecret()
 
-		if err := storage.SaveMFAAccounts(*accounts); err != nil {
-			dialog.NewInformation("❌ 错误", "保存失败: "+err.Error(), myWindow).Show()
+		if len(normalized) < 16 {
+			dialog.NewInformation("❌ 错误", "密钥长度不足，请检查是否输入正确", ctx.window).Show()
 			return
 		}
 
-		renderList("")
-	}, myWindow)
+		acc.Secret = normalized
+		*ctx.accounts = append(*ctx.accounts, acc)
+
+		if err := storage.SaveMFAAccounts(*ctx.accounts); err != nil {
+			dialog.NewInformation("❌ 错误", "保存失败: "+err.Error(), ctx.window).Show()
+			return
+		}
+
+		ctx.onChanged("")
+	}, ctx.window)
 
 	d.Resize(fyne.NewSize(340, 220))
 	d.Show()

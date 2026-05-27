@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -15,12 +14,6 @@ import (
 
 func init() {
 	os.Setenv("FYNE_THEME", "light")
-
-	if tz := os.Getenv("TZ"); tz == "" {
-		if loc, err := time.LoadLocation("Local"); err == nil {
-			time.Local = loc
-		}
-	}
 
 	fontPath := "C:\\Windows\\Fonts\\simhei.ttf"
 	if fileutil.IsExist(fontPath) {
@@ -35,17 +28,12 @@ func init() {
 
 func main() {
 	myApp := app.New()
-
-	// 设置应用程序的图标
 	myApp.SetIcon(theme.LoadIcon())
 
 	myWindow := myApp.NewWindow("虚拟MFA")
 	myWindow.Resize(fyne.NewSize(400, 700))
 
-	// 加载账号数据
 	accounts := storage.LoadMFAAccounts()
-
-	// 初始化主界面（传递停止 channel）
 	ui.SetupMainWindow(myWindow, accounts)
 
 	myWindow.ShowAndRun()

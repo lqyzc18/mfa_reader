@@ -30,14 +30,18 @@ type updateItem struct {
 }
 
 type appContext struct {
-	window      fyne.Window
-	accounts    *[]model.MFAAccount
-	onChanged   func(string)
+	window     fyne.Window
+	accounts   *[]model.MFAAccount
+	accountsMu *sync.RWMutex
+	onChanged  func(string)
 }
 
-func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
+func SetupMainWindow(myWindow fyne.Window, initialAccounts []model.MFAAccount) {
 	stopCh := make(chan struct{})
 	var windowClosed atomic.Bool
+
+	accounts := initialAccounts
+	var accountsMu sync.RWMutex
 
 	myWindow.SetOnClosed(func() {
 		windowClosed.Store(true)
@@ -71,18 +75,24 @@ func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
 	mfaTheme := theme.NewMFATheme()
 
 	ctx := &appContext{
-		window:   myWindow,
-		accounts: &accounts,
+		window:     myWindow,
+		accounts:   &accounts,
+		accountsMu: &accountsMu,
 	}
 
 	var renderList func(filterText string)
 	renderList = func(filterText string) {
 		listVBox.Objects = nil
 
+		accountsMu.RLock()
+		accountsCopy := make([]model.MFAAccount, len(accounts))
+		copy(accountsCopy, accounts)
+		accountsMu.RUnlock()
+
 		itemsMu.Lock()
 		updateItems = nil
 
-		for _, acc := range accounts {
+		for _, acc := range accountsCopy {
 			if filterText != "" && !strings.Contains(acc.AccountName, filterText) {
 				continue
 			}
@@ -127,13 +137,21 @@ func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
 			deleteBtn := widget.NewButtonWithIcon("", fyneTheme.DeleteIcon(), func() {
 				dialog.ShowConfirm("⚠ 删除确认", "确定要删除账号 "+currentAcc.AccountName+" 吗？", func(b bool) {
 					if b {
+						accountsMu.Lock()
 						for i, a := range accounts {
 							if a.AccountName == currentAcc.AccountName && a.Secret == currentAcc.Secret {
 								accounts = append(accounts[:i], accounts[i+1:]...)
 								break
 							}
 						}
-						if err := storage.SaveMFAAccounts(accounts); err != nil {
+						accountsMu.Unlock()
+
+						accountsMu.RLock()
+						accountsToSave := make([]model.MFAAccount, len(accounts))
+						copy(accountsToSave, accounts)
+						accountsMu.RUnlock()
+
+						if err := storage.SaveMFAAccounts(accountsToSave); err != nil {
 							log.Printf("[ui] 保存失败: %v", err)
 						}
 						renderList("")
@@ -203,10 +221,6 @@ func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
 			case <-stopCh:
 				return
 			case <-ticker.C:
-				if windowClosed.Load() {
-					return
-				}
-
 				now := time.Now()
 				remaining := 30 - (now.Unix() % 30)
 				progressVal := float64(remaining) / 30.0
@@ -238,9 +252,6 @@ func SetupMainWindow(myWindow fyne.Window, accounts []model.MFAAccount) {
 					infos = append(infos, updateInfo{item: item, val: val})
 				}
 
-				if windowClosed.Load() {
-					return
-				}
 				fyne.Do(func() {
 					if windowClosed.Load() {
 						return

@@ -9,7 +9,7 @@ import (
 	"mfa_reader/internal/model"
 )
 
-func dataFilePath() string {
+var dataFilePath = func() string {
 	exePath, err := os.Executable()
 	if err != nil {
 		log.Printf("[storage] 获取可执行文件路径失败: %v，使用当前目录", err)

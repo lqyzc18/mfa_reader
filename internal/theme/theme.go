@@ -2,12 +2,24 @@ package theme
 
 import (
 	"image/color"
+	"os"
+	"strconv"
 	"sync"
 
 	"fyne.io/fyne/v2"
-	fyneTheme "fyne.io/fyne/v2/theme"
+	th "fyne.io/fyne/v2/theme"
 	"github.com/duke-git/lancet/v2/fileutil"
 )
+
+var defaultTextSize float32 = 24
+
+func init() {
+	if envSize := os.Getenv("MFA_TEXT_SIZE"); envSize != "" {
+		if size, err := strconv.ParseFloat(envSize, 32); err == nil && size > 0 && size <= 100 {
+			defaultTextSize = float32(size)
+		}
+	}
+}
 
 // 加载图标
 func LoadIcon() fyne.Resource {
@@ -18,7 +30,7 @@ func LoadIcon() fyne.Resource {
 			return r
 		}
 	}
-	return fyneTheme.FyneLogo()
+	return th.FyneLogo()
 }
 
 // 现代化配色方案
@@ -42,13 +54,13 @@ type MFATheme struct {
 }
 
 func NewMFATheme() *MFATheme {
-	return &MFATheme{Theme: fyneTheme.DefaultTheme()}
+	return &MFATheme{Theme: th.DefaultTheme()}
 }
 
 func (m *MFATheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
-	if name == fyneTheme.ColorNamePrimary && m.primaryColor != nil {
+	if name == th.ColorNamePrimary && m.primaryColor != nil {
 		return m.primaryColor
 	}
 	return m.Theme.Color(name, variant)
@@ -61,8 +73,8 @@ func (m *MFATheme) SetPrimaryColor(c color.Color) {
 }
 
 func (m *MFATheme) Size(name fyne.ThemeSizeName) float32 {
-	if name == fyneTheme.SizeNameText {
-		return 32
+	if name == th.SizeNameText {
+		return defaultTextSize
 	}
 	return m.Theme.Size(name)
 }

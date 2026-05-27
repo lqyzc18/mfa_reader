@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"regexp"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -11,6 +12,8 @@ import (
 	"mfa_reader/internal/model"
 	"mfa_reader/internal/storage"
 )
+
+var base32Regex = regexp.MustCompile(`^[A-Z2-7]+=*$`)
 
 func showAddAccountDialog(ctx *appContext) {
 	nameEntry := widget.NewEntry()
@@ -44,6 +47,11 @@ func showAddAccountDialog(ctx *appContext) {
 			Secret:      secret,
 		}
 		normalized := acc.NormalizeSecret()
+
+		if !base32Regex.MatchString(normalized) {
+			dialog.NewInformation("❌ 错误", "密钥包含无效字符，仅支持 A-Z 和 2-7", ctx.window).Show()
+			return
+		}
 
 		if len(normalized) < 16 {
 			dialog.NewInformation("❌ 错误", "密钥长度不足，请检查是否输入正确", ctx.window).Show()

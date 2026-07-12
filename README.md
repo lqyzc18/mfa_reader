@@ -6,7 +6,7 @@
 ## 功能特性
 
 - **跨平台桌面支持**: 基于 Go 和 Fyne 框架，天然支持跨平台编译。
-- **现代化卡片式界面**: 采用 Material Design 风格，蓝色渐变标题栏 + 白色圆角卡片，简洁专业。
+- **现代化卡片式界面**: 采用 Material Design 风格，蓝色渐变标题栏 + 白色圆角卡片 + 硬件加速阴影，简洁专业。
 - **账号管理**:
   - **添加账号**: 支持在应用内通过可视化表单添加新的 MFA 账号（自动过滤非法字符、校验 Base32 字符集与密钥长度）。
   - **删除账号**: 提供直观的删除按钮与二次确认弹窗，安全移除不需要的账号。
@@ -110,14 +110,21 @@ mfa.json
 
 ## 技术亮点
 
-- **自定义主题系统**: 实现了 `MFATheme` 结构，支持动态调整主色调和字体大小，进度条颜色随时间实时变化。支持通过 `MFA_TEXT_SIZE` 环境变量自定义字体大小。
+- **自定义主题系统**: 实现了 `MFATheme` 结构，支持动态调整主色调和字体大小，进度条颜色随时间实时变化。利用 Fyne v2.8 新增的 `SizeNameCardRadius`、`SizeNameButtonRadius`、`SizeNameDialogRadius` 统一管理全局圆角。支持通过 `MFA_TEXT_SIZE` 环境变量自定义字体大小。
+- **硬件加速阴影**: 卡片使用 Fyne v2.8 新增的 `canvas.Shadow`（`DropShadow` 变体），通过 GPU 着色器渲染，性能优于传统软件阴影。
 - **线程安全**: 使用 `sync/atomic` 原子操作控制窗口生命周期，`sync.RWMutex` 读写锁保护 `accounts` 和 `updateItems` 切片的并发访问，goroutine 中通过快照读取避免竞态。
 - **数据绑定**: 采用 Fyne 的 `binding.String` 机制驱动验证码文本更新，避免频繁重建 UI 对象。
 - **密钥标准化**: 统一的 `NormalizeSecret()` 方法处理密钥格式（去空格、去横线、转大写、去填充符），消除多处重复逻辑。
-- **输入验证**: 使用正则表达式验证密钥是否为合法的 Base32 字符集（A-Z, 2-7），防止无效密钥导致生成失败。
+- **输入验证**: 使用正则表达式验证密钥是否为合法的 Base32 字符集（A-Z, 2-7），表单字段使用 Fyne v2.8 的 `FormItem.Required` 标记必填，防止无效密钥导致生成失败。
 - **错误可观测**: 存储层加载/解析失败时通过 `log.Printf` 输出日志，不再静默吞掉错误。
 
 ## 更新日志
+
+### v2.3 (2026-05-27)
+- ⬆️ 升级 Fyne 框架至 v2.8.0，支持 Wayland、Accessibility、GPU Shader 等新特性
+- 🎨 卡片新增 `canvas.Shadow` 硬件加速阴影（`DropShadow` 变体，GPU 着色器渲染）
+- 📐 主题新增 `SizeNameCardRadius`、`SizeNameButtonRadius`、`SizeNameDialogRadius` 统一管理全局圆角
+- 📋 表单字段使用 `FormItem.Required` 标记必填，提升交互体验
 
 ### v2.2 (2026-05-27)
 - 🔒 修复 `accounts` 切片并发访问问题，使用 `sync.RWMutex` 保护读写操作
@@ -149,6 +156,6 @@ mfa.json
 
 ## 依赖库
 
-- [fyne.io/fyne/v2](https://github.com/fyne-io/fyne) - 跨平台 UI 框架
+- [fyne.io/fyne/v2](https://github.com/fyne-io/fyne) - 跨平台 UI 框架（v2.8.0）
 - [github.com/duke-git/lancet/v2](https://github.com/duke-git/lancet) - Go 通用工具函数库（文件检测）
 - [github.com/pquerna/otp](https://github.com/pquerna/otp) - TOTP 验证码生成库

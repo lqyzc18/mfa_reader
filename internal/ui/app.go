@@ -167,6 +167,12 @@ func SetupMainWindow(myWindow fyne.Window, initialAccounts []model.MFAAccount) {
 
 			cardBg := canvas.NewRectangle(theme.CardBg)
 			cardBg.CornerRadius = 12
+			cardBg.Shadow = canvas.Shadow{
+				Variant:    canvas.DropShadow,
+				BlurRadius: 8,
+				Offset:     fyne.Position{X: 0, Y: 2},
+				Color:      color.RGBA{A: 30},
+			}
 			cardBg.SetMinSize(fyne.NewSize(380, 0))
 
 			card := container.NewMax(cardBg, container.NewPadded(contentBox))

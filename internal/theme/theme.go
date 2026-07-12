@@ -73,8 +73,15 @@ func (m *MFATheme) SetPrimaryColor(c color.Color) {
 }
 
 func (m *MFATheme) Size(name fyne.ThemeSizeName) float32 {
-	if name == th.SizeNameText {
+	switch name {
+	case th.SizeNameText:
 		return defaultTextSize
+	case th.SizeNameCardRadius:
+		return 12 // 卡片圆角
+	case th.SizeNameButtonRadius:
+		return 8 // 按钮圆角
+	case th.SizeNameDialogRadius:
+		return 16 // 弹窗圆角
 	}
 	return m.Theme.Size(name)
 }

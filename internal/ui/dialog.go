@@ -22,10 +22,12 @@ func showAddAccountDialog(ctx *appContext) {
 	secretEntry := widget.NewEntry()
 	secretEntry.SetPlaceHolder("例如: JBSWY3DPEHPK3PXP")
 
-	form := widget.NewForm(
-		widget.NewFormItem("账号名称", nameEntry),
-		widget.NewFormItem("密　　钥", secretEntry),
-	)
+	nameItem := widget.NewFormItem("账号名称", nameEntry)
+	nameItem.Required = true
+	secretItem := widget.NewFormItem("密　　钥", secretEntry)
+	secretItem.Required = true
+
+	form := widget.NewForm(nameItem, secretItem)
 
 	content := container.NewPadded(form)
 

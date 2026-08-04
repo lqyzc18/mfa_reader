@@ -1,8 +1,8 @@
 Website = "https://github.com/lqyzc18/"
 
 [Details]
-Icon = "icon.png"
-Name = "虚拟MFA"
-ID = "com.lqyzc18.mfa_reader"
-Version = "2.4.0"
-Build = 12
+  Icon = "icon.png"
+  Name = "虚拟MFA"
+  ID = "com.lqyzc18.mfa_reader"
+  Version = "2.4.0"
+  Build = 13

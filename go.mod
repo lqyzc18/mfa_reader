@@ -4,7 +4,6 @@ go 1.25.11
 
 require (
 	fyne.io/fyne/v2 v2.8.0
-	github.com/duke-git/lancet/v2 v2.3.9
 	github.com/pquerna/otp v1.5.0
 )
 

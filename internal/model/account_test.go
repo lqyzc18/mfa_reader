@@ -68,3 +68,43 @@ func TestNormalizeSecret(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateSecret(t *testing.T) {
+	tests := []struct {
+		name      string
+		secret    string
+		wantError bool
+	}{
+		{name: "合法密钥", secret: "JBSWY3DPEHPK3PXP", wantError: false},
+		{name: "过短", secret: "JBSWY3DPEHPK3PX", wantError: true},
+		{name: "非法字符", secret: "JBSWY3DPEHPK3PX0", wantError: true},
+		{name: "空密钥", secret: "", wantError: true},
+		{name: "带填充符应先标准化", secret: "JBSWY3DPEHPK3PXP", wantError: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSecret(tt.secret)
+			if (err != nil) != tt.wantError {
+				t.Errorf("ValidateSecret(%q) error = %v, wantError %v", tt.secret, err, tt.wantError)
+			}
+		})
+	}
+}
+
+func TestMatchName(t *testing.T) {
+	acc := MFAAccount{AccountName: "Google Account"}
+
+	if !acc.MatchName("") {
+		t.Error("empty filter should match")
+	}
+	if !acc.MatchName("google") {
+		t.Error("case-insensitive match failed")
+	}
+	if !acc.MatchName("ACCOUNT") {
+		t.Error("substring match failed")
+	}
+	if acc.MatchName("GitHub") {
+		t.Error("non-matching filter should not match")
+	}
+}

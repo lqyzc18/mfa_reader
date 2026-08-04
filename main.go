@@ -5,7 +5,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
-	"github.com/duke-git/lancet/v2/fileutil"
 
 	"mfa_reader/internal/storage"
 	"mfa_reader/internal/theme"
@@ -15,13 +14,13 @@ import (
 func init() {
 	os.Setenv("FYNE_THEME", "light")
 
-	fontPath := "C:\\Windows\\Fonts\\simhei.ttf"
-	if fileutil.IsExist(fontPath) {
-		os.Setenv("FYNE_FONT", fontPath)
-	} else {
-		altFont := "C:\\Windows\\Fonts\\msyh.ttf"
-		if fileutil.IsExist(altFont) {
-			os.Setenv("FYNE_FONT", altFont)
+	for _, fontPath := range []string{
+		`C:\Windows\Fonts\simhei.ttf`,
+		`C:\Windows\Fonts\msyh.ttf`,
+	} {
+		if _, err := os.Stat(fontPath); err == nil {
+			os.Setenv("FYNE_FONT", fontPath)
+			break
 		}
 	}
 }

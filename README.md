@@ -13,9 +13,9 @@
 - **动态颜色进度条**: 验证码生命周期进度条会根据剩余时间百分比变换颜色（>60% 绿色, >20% 黄色, <20% 红色）。
 - **实时刷新**: 实时同步系统时间并更新两步验证码（30秒为一个刷新周期）。
 - **一键复制与提示**: 点击显示的验证码数字即可自动复制到系统剪贴板，并弹出 800ms 后自动关闭的成功提示。
-- **搜索过滤**: 支持顶部输入框实时模糊搜索过滤账号列表。
-- **线程安全**: 使用 `sync.RWMutex` 读写锁保护共享数据，窗口关闭时无 panic，保证应用稳定性。
-- **数据持久化**: 账号数据以 JSON 格式持久化在程序同目录下的 `mfa.json`，便于随程序一起备份迁移。
+- **搜索过滤**: 支持顶部输入框实时模糊搜索过滤账号列表（不区分大小写）。
+- **线程安全**: 使用 `sync.RWMutex` 读写锁保护共享数据，账号增删走统一入口，窗口关闭时无 panic。
+- **数据持久化**: 账号数据以 JSON 格式持久化在程序同目录下的 `mfa.json`（文件权限 `0600`），便于随程序一起备份迁移。
 
 ## 项目结构
 
@@ -112,13 +112,21 @@ mfa.json
 
 - **自定义主题系统**: 实现了 `MFATheme` 结构，支持动态调整主色调和字体大小，进度条颜色随时间实时变化。利用 Fyne v2.8 新增的 `SizeNameCardRadius`、`SizeNameButtonRadius`、`SizeNameDialogRadius` 统一管理全局圆角。支持通过 `MFA_TEXT_SIZE` 环境变量自定义字体大小。
 - **硬件加速阴影**: 卡片使用 Fyne v2.8 新增的 `canvas.Shadow`（`DropShadow` 变体），通过 GPU 着色器渲染，性能优于传统软件阴影。
-- **线程安全**: 使用 `sync/atomic` 原子操作控制窗口生命周期，`sync.RWMutex` 读写锁保护 `accounts` 和 `updateItems` 切片的并发访问，goroutine 中通过快照读取避免竞态。
-- **数据绑定**: 采用 Fyne 的 `binding.String` 机制驱动验证码文本更新，避免频繁重建 UI 对象。
-- **密钥标准化**: 统一的 `NormalizeSecret()` 方法处理密钥格式（去空格、去横线、转大写、去填充符），消除多处重复逻辑。
-- **输入验证**: 使用正则表达式验证密钥是否为合法的 Base32 字符集（A-Z, 2-7），表单字段使用 Fyne v2.8 的 `FormItem.Required` 标记必填，防止无效密钥导致生成失败。
-- **错误可观测**: 存储层加载/解析失败时通过 `log.Printf` 输出日志，不再静默吞掉错误。
+- **线程安全**: 使用 `sync/atomic` 控制窗口生命周期与强制刷新标记，`sync.RWMutex` 保护 `accounts` / `updateItems`，账号变更经统一加锁路径写入磁盘。
+- **数据绑定**: 采用 Fyne 的 `binding.String` 机制驱动验证码文本更新；周期内仅刷新进度条，避免每秒整表 `Refresh`。
+- **密钥标准化**: `NormalizeSecret()` + `ValidateSecret()` 统一处理与校验密钥格式。
+- **输入验证**: Base32 字符集与最小长度校验在 model 层完成，表单字段使用 Fyne v2.8 的 `FormItem.Required` 标记必填。
+- **错误可观测**: 存储层加载/解析失败时通过 `log.Printf` 输出日志；删除保存失败会弹出错误提示。
 
 ## 更新日志
+
+### v2.4 (2026-08-04)
+- 🔒 修复添加账号时未加锁的并发竞态，账号增删统一经 `appContext` 加锁保存
+- ⚡ TOTP 仅在 30 秒周期切换或列表重建时重新生成，进度条每秒更新，减少无效计算与整表刷新
+- ✅ 密钥校验下沉到 `model.ValidateSecret`，搜索改为不区分大小写，删除后保留当前搜索条件
+- 📁 `go run` 时数据文件回退到工作目录；`mfa.json` 写入权限改为 `0600`
+- 🧹 移除 `lancet` 依赖，改用标准库；打包脚本改为自动查找 `fyne`
+- ✨ 交互优化：轻量 Toast 替代复制弹窗、空状态提示、倒计时秒数、搜索清除、添加框校验失败不关闭、密钥密文输入、回车提交、重复账号检测、首屏立即出码
 
 ### v2.3 (2026-05-27)
 - ⬆️ 升级 Fyne 框架至 v2.8.0，支持 Wayland、Accessibility、GPU Shader 等新特性
@@ -157,5 +165,4 @@ mfa.json
 ## 依赖库
 
 - [fyne.io/fyne/v2](https://github.com/fyne-io/fyne) - 跨平台 UI 框架（v2.8.0）
-- [github.com/duke-git/lancet/v2](https://github.com/duke-git/lancet) - Go 通用工具函数库（文件检测）
 - [github.com/pquerna/otp](https://github.com/pquerna/otp) - TOTP 验证码生成库

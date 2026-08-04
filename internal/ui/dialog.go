@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"regexp"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -10,67 +9,81 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"mfa_reader/internal/model"
-	"mfa_reader/internal/storage"
 )
-
-var base32Regex = regexp.MustCompile(`^[A-Z2-7]+=*$`)
 
 func showAddAccountDialog(ctx *appContext) {
 	nameEntry := widget.NewEntry()
 	nameEntry.SetPlaceHolder("例如: Google")
 
-	secretEntry := widget.NewEntry()
+	secretEntry := widget.NewPasswordEntry()
 	secretEntry.SetPlaceHolder("例如: JBSWY3DPEHPK3PXP")
+
+	hint := widget.NewLabel("密钥仅支持 A-Z / 2-7，长度至少 16 位；回车可快速提交")
+	hint.Wrapping = fyne.TextWrapWord
+	hint.Importance = widget.LowImportance
 
 	nameItem := widget.NewFormItem("账号名称", nameEntry)
 	nameItem.Required = true
 	secretItem := widget.NewFormItem("密　　钥", secretEntry)
 	secretItem.Required = true
-
 	form := widget.NewForm(nameItem, secretItem)
 
-	content := container.NewPadded(form)
+	var d dialog.Dialog
 
-	d := dialog.NewCustomConfirm("➕ 添加 MFA 账号", "添加", "取消", content, func(ok bool) {
-		if !ok {
-			return
-		}
-
+	trySubmit := func() {
 		accountName := strings.TrimSpace(nameEntry.Text)
 		secret := strings.TrimSpace(secretEntry.Text)
 
 		if accountName == "" || secret == "" {
-			dialog.NewInformation("❌ 错误", "账号名称和密钥不能为空", ctx.window).Show()
+			dialog.NewInformation("提示", "账号名称和密钥不能为空", ctx.window).Show()
 			return
 		}
 
-		acc := model.MFAAccount{
-			AccountName: accountName,
-			Secret:      secret,
-		}
+		acc := model.MFAAccount{AccountName: accountName, Secret: secret}
 		normalized := acc.NormalizeSecret()
-
-		if !base32Regex.MatchString(normalized) {
-			dialog.NewInformation("❌ 错误", "密钥包含无效字符，仅支持 A-Z 和 2-7", ctx.window).Show()
+		if err := model.ValidateSecret(normalized); err != nil {
+			dialog.NewInformation("提示", err.Error(), ctx.window).Show()
 			return
 		}
 
-		if len(normalized) < 16 {
-			dialog.NewInformation("❌ 错误", "密钥长度不足，请检查是否输入正确", ctx.window).Show()
+		if dup, msg := ctx.hasDuplicate(accountName, normalized); dup {
+			dialog.NewInformation("提示", msg, ctx.window).Show()
 			return
 		}
 
 		acc.Secret = normalized
-		*ctx.accounts = append(*ctx.accounts, acc)
-
-		if err := storage.SaveMFAAccounts(*ctx.accounts); err != nil {
-			dialog.NewInformation("❌ 错误", "保存失败: "+err.Error(), ctx.window).Show()
+		if err := ctx.addAccount(acc); err != nil {
+			dialog.NewInformation("错误", "保存失败: "+err.Error(), ctx.window).Show()
 			return
 		}
 
+		d.Hide()
+		if ctx.searchEntry != nil {
+			ctx.searchEntry.SetText("")
+		}
 		ctx.onChanged("")
-	}, ctx.window)
+		if ctx.showToast != nil {
+			ctx.showToast("已添加「" + accountName + "」")
+		}
+	}
 
-	d.Resize(fyne.NewSize(340, 220))
+	cancelBtn := widget.NewButton("取消", func() { d.Hide() })
+	addBtn := widget.NewButton("添加", trySubmit)
+	addBtn.Importance = widget.HighImportance
+
+	buttons := container.NewGridWithColumns(2, cancelBtn, addBtn)
+	body := container.NewPadded(container.NewVBox(form, hint, buttons))
+
+	d = dialog.NewCustomWithoutButtons("添加 MFA 账号", body, ctx.window)
+
+	nameEntry.OnSubmitted = func(string) {
+		ctx.window.Canvas().Focus(secretEntry)
+	}
+	secretEntry.OnSubmitted = func(string) {
+		trySubmit()
+	}
+
+	d.Resize(fyne.NewSize(360, 280))
 	d.Show()
+	ctx.window.Canvas().Focus(nameEntry)
 }

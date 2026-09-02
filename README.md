@@ -12,7 +12,7 @@
   - **删除账号**: 提供直观的删除按钮与二次确认弹窗，安全移除不需要的账号。
 - **动态颜色进度条**: 验证码生命周期进度条会根据剩余时间百分比变换颜色（>60% 绿色, >20% 黄色, <20% 红色）。
 - **实时刷新**: 实时同步系统时间并更新两步验证码（30秒为一个刷新周期）。
-- **一键复制与提示**: 点击显示的验证码数字即可自动复制到系统剪贴板，并弹出 800ms 后自动关闭的成功提示。
+- **一键复制与提示**: 点击显示的验证码数字即可自动复制到系统剪贴板，并弹出 1200ms 后自动关闭的成功提示。
 - **搜索过滤**: 支持顶部输入框实时模糊搜索过滤账号列表（不区分大小写）。
 - **线程安全**: 使用 `sync.RWMutex` 读写锁保护共享数据，账号增删走统一入口，窗口关闭时无 panic。
 - **数据持久化**: 账号数据以 JSON 格式持久化在程序同目录下的 `mfa.json`（文件权限 `0600`），便于随程序一起备份迁移。
@@ -30,6 +30,12 @@ mfa_reader/
 │   ├── theme/             # 自定义 Fyne 主题、配色方案与应用图标加载
 │   │   └── theme_test.go  # theme 包单元测试
 │   └── ui/                # 界面构建、弹窗交互及定时刷新渲染逻辑
+│       ├── app.go          # 主窗口装配（SetupMainWindow）、appContext、添加/删除账户
+│       ├── card.go         # accountCard 组件：单卡片构建、显示状态、setCountdown
+│       ├── codegen.go      # codeGen：按 (密钥, 周期) 缓存的 TOTP 生成入口
+│       ├── debouncer.go    # 搜索输入防抖合并
+│       ├── refresh.go      # liveRefresher：每秒驱动卡片倒计时与验证码刷新
+│       └── dialog.go       # 添加账号表单弹窗
 ├── FyneApp.toml           # Fyne 打包配置文件
 ├── build_windows.bat      # Windows 一键打包脚本
 ├── icon.png               # 应用程序图标文件
@@ -87,6 +93,9 @@ go test ./...
 4. **关于中文字体**：
    程序启动时会自动检测 Windows 系统下的 `simhei.ttf` 或 `msyh.ttf` 以防止中文乱码。如果使用其他操作系统或缺少对应字体，请手动配置环境变量 `FYNE_FONT` 指向有效的 `.ttf` 中文字体文件路径。
 
+5. **关于主题**：
+   默认使用浅色主题（仅当 `FYNE_THEME` 环境变量未显式设置时生效）。如需切换深色主题，可手动设置 `FYNE_THEME=dark`；注意当前自定义卡片使用了固定浅色背景，深色模式下视觉可能与系统背景不一致。
+
 ## 数据存储
 
 账号数据以 JSON 格式存储在程序可执行文件同目录下：
@@ -112,13 +121,22 @@ mfa.json
 
 - **自定义主题系统**: 实现了 `MFATheme` 结构，支持动态调整主色调和字体大小，进度条颜色随时间实时变化。利用 Fyne v2.8 新增的 `SizeNameCardRadius`、`SizeNameButtonRadius`、`SizeNameDialogRadius` 统一管理全局圆角。支持通过 `MFA_TEXT_SIZE` 环境变量自定义字体大小。
 - **硬件加速阴影**: 卡片使用 Fyne v2.8 新增的 `canvas.Shadow`（`DropShadow` 变体），通过 GPU 着色器渲染，性能优于传统软件阴影。
-- **线程安全**: 使用 `sync/atomic` 控制窗口生命周期与强制刷新标记，`sync.RWMutex` 保护 `accounts` / `updateItems`，账号变更经统一加锁路径写入磁盘。
-- **数据绑定**: 采用 Fyne 的 `binding.String` 机制驱动验证码文本更新；周期内仅刷新进度条，避免每秒整表 `Refresh`。
+- **线程安全**: 使用 `sync/atomic` 控制窗口生命周期与强制刷新标记，`sync.RWMutex` 保护 `accounts` / `cards` 切片，账号变更经统一加锁路径写入磁盘。
+- **验证码更新**: `accountCard` 持有 `codeText` 缓存；周期切换时通过 `codeGen` 生成并 `widget.Label.SetText` 局部刷新，避免整表 `Refresh`。`codeGen` 按 `(secret, 周期)` 维度缓存 HMAC 计算结果，搜索重建同周期内不再重复生成。
 - **密钥标准化**: `NormalizeSecret()` + `ValidateSecret()` 统一处理与校验密钥格式。
 - **输入验证**: Base32 字符集与最小长度校验在 model 层完成，表单字段使用 Fyne v2.8 的 `FormItem.Required` 标记必填。
 - **错误可观测**: 存储层加载/解析失败时通过 `log.Printf` 输出日志；删除保存失败会弹出错误提示。
 
 ## 更新日志
+
+### v2.5 (2026-09-02)
+- 🧩 UI 拆分：`SetupMainWindow` 从 446 行降至 ~250 行，抽出 `accountCard` 组件、`liveRefresher` 与 `codeGen` 三个职责单一的单元
+- ⚡ TOTP 生成按 `(密钥, 周期)` 缓存；搜索重建同周期内不再重复 HMAC 计算
+- ⚡ 搜索框加 150ms 防抖，连续输入抖动期间只触发一次列表重建
+- 🧹 `theme` 集中 0.6/0.2 阈值常量，新增 `RemainTextColor` 消除卡片中的 magic number
+- 🧹 删除复制分支的 `--- ---` 死代码；修复添加账号后触发的重复渲染
+- 🎨 `FYNE_THEME` 不再强制覆盖：未显式设置时给出 light 默认，尊重用户/系统主题偏好
+- 🧪 新增 `codegen_test.go`（缓存命中、周期切换、错误密钥）与 `debouncer_test.go`（合并、取消、并发）
 
 ### v2.4 (2026-08-04)
 - 🔒 修复添加账号时未加锁的并发竞态，账号增删统一经 `appContext` 加锁保存

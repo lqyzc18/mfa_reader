@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"image/color"
 	"strings"
 	"sync"
@@ -11,30 +10,21 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/dialog"
 	fyneTheme "fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-	"github.com/pquerna/otp/totp"
 
 	"mfa_reader/internal/model"
 	"mfa_reader/internal/storage"
 	"mfa_reader/internal/theme"
 )
 
-type updateItem struct {
-	codeBinding binding.String
-	progress    *widget.ProgressBar
-	remainLabel *canvas.Text
-	secret      string
-}
-
 type appContext struct {
 	window       fyne.Window
 	accounts     *[]model.MFAAccount
 	accountsMu   *sync.RWMutex
 	searchEntry  *widget.Entry
-	onChanged    func(string)
+	refreshNow   func()
 	forceCodeGen *atomic.Bool
 	showToast    func(string)
 }
@@ -88,20 +78,6 @@ func (ctx *appContext) hasDuplicate(name, secret string) (bool, string) {
 		}
 	}
 	return false, ""
-}
-
-func formatTOTPCode(code string, err error) string {
-	if err != nil {
-		return "Error"
-	}
-	if len(code) == 6 {
-		return fmt.Sprintf("%s %s", code[:3], code[3:])
-	}
-	return code
-}
-
-func remainingSeconds(now time.Time) int {
-	return int(30 - (now.Unix() % 30))
 }
 
 func SetupMainWindow(myWindow fyne.Window, initialAccounts []model.MFAAccount) {
@@ -179,11 +155,9 @@ func SetupMainWindow(myWindow fyne.Window, initialAccounts []model.MFAAccount) {
 		})
 	}
 
-	var itemsMu sync.RWMutex
-	var updateItems []updateItem
-
 	listVBox := container.NewVBox()
 	mfaTheme := theme.NewMFATheme()
+	gen := newCodeGen()
 
 	emptyHint := canvas.NewText("暂无账号，点击右上角「添加」开始使用", theme.TextSecondary)
 	emptyHint.TextSize = 14
@@ -210,111 +184,55 @@ func SetupMainWindow(myWindow fyne.Window, initialAccounts []model.MFAAccount) {
 		showToast:    showToast,
 	}
 
-	var renderList func(filterText string)
-	renderList = func(filterText string) {
+	var cardsMu sync.RWMutex
+	cards := []*accountCard{}
+
+	// renderList 是唯一重建列表的地方；验证码经 codeGen 缓存，同周期重建不重复计算。
+	var renderList func(filter string)
+	renderList = func(filter string) {
 		listVBox.Objects = nil
 
 		accountsCopy := ctx.snapshotAccounts()
 		matched := 0
 		now := time.Now()
-		remain := remainingSeconds(now)
-		progressVal := float64(remain) / 30.0
-		currentColor := theme.GetProgressColor(progressVal)
-		mfaTheme.SetPrimaryColor(currentColor)
+		mfaTheme.SetPrimaryColor(theme.GetProgressColor(float64(remainingSeconds(now)) / 30.0))
 
-		itemsMu.Lock()
-		updateItems = nil
-
+		cardsMu.Lock()
+		cards = cards[:0]
 		for _, acc := range accountsCopy {
-			if !acc.MatchName(filterText) {
+			if !acc.MatchName(filter) {
 				continue
 			}
 			matched++
 
-			normalized := acc.NormalizeSecret()
-			code, err := totp.GenerateCode(normalized, now)
-			codeStrBinding := binding.NewString()
-			_ = codeStrBinding.Set(formatTOTPCode(code, err))
-
-			codeLabel := widget.NewLabelWithData(codeStrBinding)
-			codeLabel.Alignment = fyne.TextAlignCenter
-			codeLabel.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
-
-			copyHint := canvas.NewText("点击验证码复制", theme.TextSecondary)
-			copyHint.TextSize = 11
-			copyHint.Alignment = fyne.TextAlignCenter
-
-			copyBtn := widget.NewButton("", func() {
-				val, err := codeStrBinding.Get()
-				if err != nil || val == "--- ---" || val == "Error" {
-					return
-				}
-				myWindow.Clipboard().SetContent(strings.ReplaceAll(val, " ", ""))
-				showToast("已复制  " + val)
-			})
-			copyBtn.Importance = widget.LowImportance
-
-			clickableCode := container.NewStack(
-				copyBtn,
-				container.NewPadded(container.NewVBox(codeLabel, copyHint)),
-			)
-			largeLabelContainer := container.NewThemeOverride(clickableCode, mfaTheme)
-
-			progress := widget.NewProgressBar()
-			progress.Min = 0
-			progress.Max = 1
-			progress.SetValue(progressVal)
-			progress.TextFormatter = func() string { return "" }
-
-			remainLabel := canvas.NewText(fmt.Sprintf("%ds", remain), theme.TextSecondary)
-			remainLabel.TextSize = 12
-			remainLabel.Alignment = fyne.TextAlignTrailing
-
-			progressRow := container.NewBorder(nil, nil, nil, remainLabel,
-				container.NewThemeOverride(progress, mfaTheme))
-
 			currentAcc := acc
-			deleteBtn := widget.NewButtonWithIcon("", fyneTheme.DeleteIcon(), func() {
-				dialog.ShowConfirm("删除确认", "确定要删除账号「"+currentAcc.AccountName+"」吗？", func(b bool) {
-					if !b {
-						return
-					}
-					if err := ctx.deleteAccount(currentAcc.AccountName, currentAcc.Secret); err != nil {
-						dialog.NewInformation("错误", "保存失败: "+err.Error(), myWindow).Show()
-						return
-					}
-					showToast("已删除「" + currentAcc.AccountName + "」")
-					renderList(ctx.currentFilter())
-				}, myWindow)
+			card, root := newAccountCard(accountCardOptions{
+				account:  currentAcc,
+				gen:      gen,
+				now:      now,
+				mfaTheme: mfaTheme,
+				onCopy: func(code string) {
+					myWindow.Clipboard().SetContent(strings.ReplaceAll(code, " ", ""))
+					showToast("已复制  " + code)
+				},
+				onDelete: func() {
+					dialog.ShowConfirm("删除确认", "确定要删除账号「"+currentAcc.AccountName+"」吗？", func(b bool) {
+						if !b {
+							return
+						}
+						if err := ctx.deleteAccount(currentAcc.AccountName, currentAcc.Secret); err != nil {
+							dialog.NewInformation("错误", "保存失败: "+err.Error(), myWindow).Show()
+							return
+						}
+						showToast("已删除「" + currentAcc.AccountName + "」")
+						renderList(ctx.currentFilter())
+					}, myWindow)
+				},
 			})
-			deleteBtn.Importance = widget.LowImportance
-
-			header := container.NewBorder(nil, nil, nil, deleteBtn,
-				widget.NewLabelWithStyle(currentAcc.AccountName, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
-
-			contentBox := container.NewVBox(header, largeLabelContainer, progressRow)
-
-			cardBg := canvas.NewRectangle(theme.CardBg)
-			cardBg.CornerRadius = 12
-			cardBg.Shadow = canvas.Shadow{
-				Variant:    canvas.DropShadow,
-				BlurRadius: 8,
-				Offset:     fyne.Position{X: 0, Y: 2},
-				Color:      color.RGBA{A: 30},
-			}
-			cardBg.SetMinSize(fyne.NewSize(380, 0))
-
-			card := container.NewMax(cardBg, container.NewPadded(contentBox))
-			listVBox.Add(container.NewPadded(card))
-
-			updateItems = append(updateItems, updateItem{
-				codeBinding: codeStrBinding,
-				progress:    progress,
-				remainLabel: remainLabel,
-				secret:      normalized,
-			})
+			listVBox.Add(root)
+			cards = append(cards, card)
 		}
-		itemsMu.Unlock()
+		cardsMu.Unlock()
 
 		emptyHint.Hide()
 		emptySearchHint.Hide()
@@ -330,7 +248,20 @@ func SetupMainWindow(myWindow fyne.Window, initialAccounts []model.MFAAccount) {
 		listStack.Refresh()
 	}
 
-	ctx.onChanged = renderList
+	// 搜索输入防抖：按键抖动期间只触发最后一次渲染。
+	// 后台 goroutine 通过 fyne.Do 切回 UI 线程再调用 renderList。
+	searchDebouncer := newDebouncer(150*time.Millisecond, func(s string) {
+		fyne.Do(func() {
+			if windowClosed.Load() {
+				return
+			}
+			renderList(s)
+		})
+	})
+	ctx.refreshNow = func() {
+		searchDebouncer.cancel()
+		renderList(ctx.currentFilter())
+	}
 
 	addBtn := widget.NewButtonWithIcon("添加", fyneTheme.ContentAddIcon(), func() {
 		showAddAccountDialog(ctx)
@@ -345,7 +276,7 @@ func SetupMainWindow(myWindow fyne.Window, initialAccounts []model.MFAAccount) {
 		} else {
 			clearSearchBtn.Show()
 		}
-		renderList(s)
+		searchDebouncer.schedule(s)
 	}
 
 	scrollList := container.NewVScroll(listStack)
@@ -365,82 +296,12 @@ func SetupMainWindow(myWindow fyne.Window, initialAccounts []model.MFAAccount) {
 
 	myWindow.SetContent(mainContent)
 
-	go func() {
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-
-		var lastPeriod int64 = -1
-		var lastColor color.Color
-
-		for {
-			select {
-			case <-stopCh:
-				return
-			case <-ticker.C:
-				now := time.Now()
-				period := now.Unix() / 30
-				remain := remainingSeconds(now)
-				progressVal := float64(remain) / 30.0
-
-				currentColor := theme.GetProgressColor(progressVal)
-				colorChanged := currentColor != lastColor
-				if colorChanged {
-					mfaTheme.SetPrimaryColor(currentColor)
-					lastColor = currentColor
-				}
-
-				needCodeUpdate := forceCodeGen.Swap(false) || period != lastPeriod
-				lastPeriod = period
-				remainText := fmt.Sprintf("%ds", remain)
-
-				itemsMu.RLock()
-				snapshot := make([]updateItem, len(updateItems))
-				copy(snapshot, updateItems)
-				itemsMu.RUnlock()
-
-				type updateInfo struct {
-					item       *updateItem
-					val        string
-					updateCode bool
-					refreshBar bool
-				}
-				infos := make([]updateInfo, 0, len(snapshot))
-				for i := range snapshot {
-					item := &snapshot[i]
-					info := updateInfo{item: item, refreshBar: colorChanged}
-					if needCodeUpdate {
-						code, err := totp.GenerateCode(item.secret, now)
-						info.val = formatTOTPCode(code, err)
-						info.updateCode = true
-					}
-					infos = append(infos, info)
-				}
-
-				fyne.Do(func() {
-					if windowClosed.Load() {
-						return
-					}
-					for _, info := range infos {
-						if info.updateCode {
-							_ = info.item.codeBinding.Set(info.val)
-						}
-						info.item.progress.SetValue(progressVal)
-						if info.item.remainLabel != nil {
-							info.item.remainLabel.Text = remainText
-							// 低剩余时间时用警示色提示紧迫感
-							if progressVal <= 0.2 {
-								info.item.remainLabel.Color = theme.AlertRed
-							} else {
-								info.item.remainLabel.Color = theme.TextSecondary
-							}
-							info.item.remainLabel.Refresh()
-						}
-						if info.refreshBar {
-							info.item.progress.Refresh()
-						}
-					}
-				})
-			}
-		}
-	}()
+	refresher := &liveRefresher{
+		cardsMu:  &cardsMu,
+		cards:    &cards,
+		gen:      gen,
+		force:    &forceCodeGen,
+		mfaTheme: mfaTheme,
+	}
+	go refresher.run(stopCh, func() bool { return windowClosed.Load() })
 }

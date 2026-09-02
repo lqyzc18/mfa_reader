@@ -12,7 +12,11 @@ import (
 )
 
 func init() {
-	os.Setenv("FYNE_THEME", "light")
+	// 仅在用户未显式设置时给出 light 默认值，避免覆盖系统/用户主题偏好。
+	// 注意：自定义卡片使用了固定浅色背景，深色模式下 UI 会与系统背景不一致。
+	if os.Getenv("FYNE_THEME") == "" {
+		os.Setenv("FYNE_THEME", "light")
+	}
 
 	for _, fontPath := range []string{
 		`C:\Windows\Fonts\simhei.ttf`,

@@ -58,10 +58,14 @@ func showAddAccountDialog(ctx *appContext) {
 		}
 
 		d.Hide()
-		if ctx.searchEntry != nil {
+		// 清空搜索会触发 OnChanged（受防抖保护）；若本就无搜索词则手动渲染一次以显示新账号。
+		// refreshNow 内部会取消挂起的防抖定时器，确保新卡片立即可见。
+		if ctx.searchEntry != nil && ctx.searchEntry.Text != "" {
 			ctx.searchEntry.SetText("")
 		}
-		ctx.onChanged("")
+		if ctx.refreshNow != nil {
+			ctx.refreshNow()
+		}
 		if ctx.showToast != nil {
 			ctx.showToast("已添加「" + accountName + "」")
 		}

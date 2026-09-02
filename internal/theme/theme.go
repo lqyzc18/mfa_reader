@@ -82,13 +82,27 @@ func (m *MFATheme) Size(name fyne.ThemeSizeName) float32 {
 	return m.Theme.Size(name)
 }
 
-// GetProgressColor 根据剩余时间比例返回渐变色
+// 剩余时间分段阈值：超过 midRatio 视为充足，低于 lowRatio 视为紧迫。
+const (
+	midRatio float64 = 0.6
+	lowRatio float64 = 0.2
+)
+
+// GetProgressColor 根据剩余时间比例返回进度条渐变色
 func GetProgressColor(progress float64) color.Color {
-	if progress > 0.6 {
+	if progress > midRatio {
 		return SuccessGreen
 	}
-	if progress > 0.2 {
+	if progress > lowRatio {
 		return WarningYellow
 	}
 	return AlertRed
+}
+
+// RemainTextColor 返回剩余秒数文本颜色：紧迫时使用警示色。
+func RemainTextColor(progress float64) color.Color {
+	if progress <= lowRatio {
+		return AlertRed
+	}
+	return TextSecondary
 }

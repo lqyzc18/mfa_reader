@@ -126,8 +126,18 @@ mfa.json
 - **密钥标准化**: `NormalizeSecret()` + `ValidateSecret()` 统一处理与校验密钥格式。
 - **输入验证**: Base32 字符集与最小长度校验在 model 层完成，表单字段使用 Fyne v2.8 的 `FormItem.Required` 标记必填。
 - **错误可观测**: 存储层加载/解析失败时通过 `log.Printf` 输出日志；删除保存失败会弹出错误提示。
+- **原子持久化**: `mfa.json` 采用临时文件 + fsync + rename 的原子写入，任何时刻磁盘上都是完整 JSON，崩溃不丢数据。
 
 ## 更新日志
+
+### v2.6 (2026-09-20)
+- 🔒 `mfa.json` 改为原子写入（临时文件 + fsync + rename），进程崩溃/断电不再截断密钥文件导致账号全丢
+- 🐛 修复图标加载路径：优先查找可执行文件目录，兼容快捷方式/计划任务等 CWD 与程序目录不一致的启动方式
+- 🧹 替换 Fyne 已废弃的 `container.NewMax` 为 `container.NewStack`
+- ⚡ `NormalizeSecret` 单趟处理，包级 `strings.Replacer` 复用
+- 📦 `icon.png` 从 2048×2048 (1.4MB) 压缩至 256×256 (92KB)，仓库与打包体积减少约 1.3MB
+- 🧹 `coverage` 移出 git 跟踪；`FyneApp.toml` 版本同步至 2.6.0
+- 🧪 新增原子保存覆盖写与图标路径查找的单元测试
 
 ### v2.5 (2026-09-02)
 - 🧩 UI 拆分：`SetupMainWindow` 从 446 行降至 ~250 行，抽出 `accountCard` 组件、`liveRefresher` 与 `codeGen` 三个职责单一的单元

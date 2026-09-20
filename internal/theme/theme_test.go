@@ -2,6 +2,8 @@ package theme
 
 import (
 	"image/color"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"fyne.io/fyne/v2/theme"
@@ -98,5 +100,27 @@ func TestMFATheme_Color_PrimaryColor(t *testing.T) {
 func TestDefaultTextSize(t *testing.T) {
 	if defaultTextSize <= 0 || defaultTextSize > 100 {
 		t.Errorf("defaultTextSize = %v, want between 0 and 100", defaultTextSize)
+	}
+}
+
+func TestFindIconPath(t *testing.T) {
+	dirWithIcon := t.TempDir()
+	iconFile := filepath.Join(dirWithIcon, "icon.png")
+	if err := os.WriteFile(iconFile, []byte("png"), 0644); err != nil {
+		t.Fatalf("failed to create test icon: %v", err)
+	}
+	emptyDir := t.TempDir()
+
+	// 命中第一个包含 icon.png 的目录。
+	if got := findIconPath(emptyDir, dirWithIcon); got != iconFile {
+		t.Errorf("findIconPath() = %q, want %q", got, iconFile)
+	}
+	// 空目录串被跳过。
+	if got := findIconPath("", dirWithIcon); got != iconFile {
+		t.Errorf("findIconPath() with empty dir = %q, want %q", got, iconFile)
+	}
+	// 都没有时返回空串。
+	if got := findIconPath(emptyDir, ""); got != "" {
+		t.Errorf("findIconPath() = %q, want empty", got)
 	}
 }

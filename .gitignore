@@ -2,6 +2,8 @@
 /bin
 mfa_reader.exe
 /mfa.json
+/mfa.json.tmp
 /cmd.txt
+/coverage
 /coverage.out
 /fyne_metadata_init.go

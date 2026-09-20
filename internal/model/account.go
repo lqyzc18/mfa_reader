@@ -15,10 +15,11 @@ type MFAAccount struct {
 	Secret      string `json:"secret"`
 }
 
+// secretReplacer 去除密钥中的分隔符（空格与横线），包级复用避免每次调用重复构建。
+var secretReplacer = strings.NewReplacer(" ", "", "-", "")
+
 func (a *MFAAccount) NormalizeSecret() string {
-	s := strings.ToUpper(strings.TrimSpace(a.Secret))
-	s = strings.ReplaceAll(s, " ", "")
-	s = strings.ReplaceAll(s, "-", "")
+	s := secretReplacer.Replace(strings.ToUpper(strings.TrimSpace(a.Secret)))
 	return strings.TrimRight(s, "=")
 }
 

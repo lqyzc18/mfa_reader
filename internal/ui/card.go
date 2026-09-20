@@ -101,7 +101,7 @@ func newAccountCard(o accountCardOptions) (*accountCard, fyne.CanvasObject) {
 	}
 	bg.SetMinSize(fyne.NewSize(cardWidth, 0))
 
-	root := container.NewPadded(container.NewMax(bg, container.NewPadded(content)))
+	root := container.NewPadded(container.NewStack(bg, container.NewPadded(content)))
 	return card, root
 }
 

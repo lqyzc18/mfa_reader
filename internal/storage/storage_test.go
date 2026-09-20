@@ -84,6 +84,38 @@ func TestLoadMFAAccounts_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestSaveMFAAccounts_OverwriteExisting(t *testing.T) {
+	tmpDir := t.TempDir()
+	originalDataFilePath := dataFilePath
+	defer func() { dataFilePath = originalDataFilePath }()
+
+	filePath := filepath.Join(tmpDir, "mfa.json")
+	dataFilePath = func() string {
+		return filePath
+	}
+
+	first := []model.MFAAccount{{AccountName: "Google", Secret: "JBSWY3DPEHPK3PXP"}}
+	if err := SaveMFAAccounts(first); err != nil {
+		t.Fatalf("first SaveMFAAccounts() error = %v", err)
+	}
+
+	// 覆盖已存在的文件（验证 rename 替换语义），内容变短以暴露截断问题。
+	second := []model.MFAAccount{}
+	if err := SaveMFAAccounts(second); err != nil {
+		t.Fatalf("second SaveMFAAccounts() error = %v", err)
+	}
+
+	loaded := LoadMFAAccounts()
+	if len(loaded) != 0 {
+		t.Errorf("LoadMFAAccounts() after overwrite returned %d accounts, want 0", len(loaded))
+	}
+
+	// 原子写入不应残留临时文件。
+	if _, err := os.Stat(filePath + ".tmp"); !os.IsNotExist(err) {
+		t.Errorf("temp file should not exist after save, stat err = %v", err)
+	}
+}
+
 func TestSaveMFAAccounts_EmptySlice(t *testing.T) {
 	tmpDir := t.TempDir()
 	originalDataFilePath := dataFilePath

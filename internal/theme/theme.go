@@ -3,6 +3,7 @@ package theme
 import (
 	"image/color"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 
@@ -20,15 +21,41 @@ func init() {
 	}
 }
 
+// LoadIcon 加载应用图标：依次在可执行文件目录与当前工作目录查找 icon.png，
+// 兼容快捷方式/计划任务等 CWD 与程序目录不一致的启动方式；都找不到时回退 Fyne 默认图标。
 func LoadIcon() fyne.Resource {
-	iconPath := "icon.png"
-	if _, err := os.Stat(iconPath); err == nil {
-		r, err := fyne.LoadResourceFromPath(iconPath)
-		if err == nil {
+	if p := findIconPath(exeDir(), "."); p != "" {
+		if r, err := fyne.LoadResourceFromPath(p); err == nil {
 			return r
 		}
 	}
 	return th.FyneLogo()
+}
+
+// findIconPath 在候选目录中按顺序查找 icon.png，找不到返回空串。
+func findIconPath(dirs ...string) string {
+	for _, dir := range dirs {
+		if dir == "" {
+			continue
+		}
+		p := filepath.Join(dir, "icon.png")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+// exeDir 返回可执行文件所在目录，失败时返回空串。
+func exeDir() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	return filepath.Dir(exe)
 }
 
 var (

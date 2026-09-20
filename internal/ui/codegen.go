@@ -19,9 +19,22 @@ func formatTOTPCode(code string, err error) string {
 	return code
 }
 
-// remainingSeconds 返回当前 30 秒周期剩余秒数（1~30）。
+// totpPeriod 是 TOTP 标准周期（秒），同时作为倒计时与进度条的分母。
+const totpPeriod = 30
+
+// periodOf 返回 now 所属的 TOTP 周期序号，周期切换即需重新生成验证码。
+func periodOf(now time.Time) int64 {
+	return now.Unix() / totpPeriod
+}
+
+// remainingSeconds 返回当前周期剩余秒数（1~totpPeriod）。
 func remainingSeconds(now time.Time) int {
-	return int(30 - (now.Unix() % 30))
+	return int(totpPeriod - (now.Unix() % totpPeriod))
+}
+
+// progressRatio 将剩余秒数换算为进度条比例（0~1）。
+func progressRatio(remain int) float64 {
+	return float64(remain) / totpPeriod
 }
 
 // codeGen 按 (密钥, 周期) 缓存生成的验证码：同一周期内重复渲染不再重复计算 HMAC。
@@ -45,7 +58,7 @@ func newCodeGen() *codeGen {
 
 // Text 返回 secret 在 now 所在周期内的格式化验证码。
 func (g *codeGen) Text(secret string, now time.Time) string {
-	period := now.Unix() / 30
+	period := periodOf(now)
 
 	g.mu.Lock()
 	defer g.mu.Unlock()

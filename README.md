@@ -8,46 +8,45 @@
 - **跨平台桌面支持**: 基于 Go 和 Fyne 框架，天然支持跨平台编译。
 - **现代化卡片式界面**: 采用 Material Design 风格，蓝色渐变标题栏 + 白色圆角卡片 + 硬件加速阴影，简洁专业。
 - **账号管理**:
-  - **添加账号**: 支持在应用内通过可视化表单添加新的 MFA 账号（自动过滤非法字符、校验 Base32 字符集与密钥长度）。
-  - **删除账号**: 提供直观的删除按钮与二次确认弹窗，安全移除不需要的账号。
+  - **添加 / 编辑账号**: 可视化表单添加或就地修改名称与密钥（自动过滤非法字符、校验 Base32 字符集与密钥长度）。
+  - **置顶与排序**: 卡片菜单支持置顶、上移、下移；置顶账号固定在列表顶部。
+  - **删除账号**: 二次确认后移除。
+  - **导入 / 导出**: 支持 otpauth:// 文本、JSON 账号数组、authenticator 二维码（图片或屏幕截图）、JSON 备份。
 - **动态颜色进度条**: 验证码生命周期进度条会根据剩余时间百分比变换颜色（>60% 绿色, >20% 黄色, <20% 红色）。
 - **实时刷新**: 实时同步系统时间并更新两步验证码（30秒为一个刷新周期）。
 - **一键复制与提示**: 点击显示的验证码数字即可自动复制到系统剪贴板，并弹出 1200ms 后自动关闭的成功提示。
 - **搜索过滤**: 支持顶部输入框实时模糊搜索过滤账号列表（不区分大小写）。
 - **线程安全**: 使用 `sync.RWMutex` 读写锁保护共享数据，账号增删走统一入口，窗口关闭时无 panic。
-- **数据持久化**: 账号数据以 JSON 格式持久化在程序同目录下的 `mfa.json`（文件权限 `0600`），便于随程序一起备份迁移。
+- **数据持久化**: 账号数据以明文 JSON 保存在程序同目录 `mfa.json`（权限 `0600`），便于备份迁移。写入仍走临时文件 + fsync + rename，避免崩溃截断。
+- **系统托盘**: 关闭窗口最小化到托盘，托盘菜单可显示或退出。
+- **全局快捷键**: `Ctrl+Alt+M` 显示 / 隐藏主窗口。
+- **窗口记忆**: 记住上次的尺寸与位置。
 
 ## 项目结构
 
 ```text
 mfa_reader/
-├── main.go                # 程序入口文件，负责初始化 Fyne 应用与拉起主界面
-├── internal/              # 内部私有包目录
-│   ├── model/             # 核心数据结构 MFAAccount 及密钥标准化方法
-│   │   └── account_test.go # model 包单元测试
-│   ├── storage/           # JSON 数据的加载与持久化存储（程序同目录 mfa.json）
-│   │   └── storage_test.go # storage 包单元测试
-│   ├── theme/             # 自定义 Fyne 主题、配色方案与应用图标加载
-│   │   └── theme_test.go  # theme 包单元测试
-│   └── ui/                # 界面构建、弹窗交互及定时刷新渲染逻辑
-│       ├── app.go          # 主窗口装配（SetupMainWindow）、appContext、添加/删除账户
-│       ├── card.go         # accountCard 组件：单卡片构建、显示状态、setCountdown
-│       ├── codegen.go      # codeGen：按 (密钥, 周期) 缓存的 TOTP 生成入口
-│       ├── debouncer.go    # 搜索输入防抖合并
-│       ├── refresh.go      # liveRefresher：每秒驱动卡片倒计时与验证码刷新
-│       └── dialog.go       # 添加账号表单弹窗
-├── FyneApp.toml           # Fyne 打包配置文件
-├── build_windows.bat      # Windows 一键打包脚本
-├── icon.png               # 应用程序图标文件
-├── go.mod / go.sum        # 依赖管理文件
-└── README.md              # 项目说明文档
+├── main.go                  # 入口：Fyne 应用、数据仓库、主窗口
+├── internal/
+│   ├── cryptutil/           # 仅用于读取上一版加密文件并改回明文
+│   ├── hotkey/              # Ctrl+Alt+M 全局热键
+│   ├── model/               # MFAAccount、密钥校验、置顶排序
+│   ├── qrscan/              # 图片 / 屏幕截图二维码识别
+│   ├── storage/             # 明文 JSON 持久化、otpauth 导入导出
+│   ├── theme/               # 主题、配色、图标
+│   ├── ui/                  # 主界面、卡片、导入导出、托盘
+│   └── winpos/              # Windows 窗口位置读写
+├── FyneApp.toml
+├── build_windows.bat
+├── icon.png
+└── README.md
 ```
 
 ## 运行与编译
 
 ### 1. 运行程序
 
-确保您已经安装了 Go 环境 (>= 1.21)，在项目根目录下执行：
+确保您已经安装了 Go 环境 (>= 1.25)，在项目根目录下执行：
 
 ```bash
 go run main.go
@@ -110,12 +109,13 @@ mfa.json
 [
 	{
 		"accountName": "Google",
-		"secret": "JBSWY3DPEHPK3PXP"
+		"secret": "JBSWY3DPEHPK3PXP",
+		"pinned": true
 	}
 ]
 ```
 
-如需备份或迁移，直接复制该文件即可。
+文件权限 `0600`。如需备份或迁移，直接复制该文件，或使用应用内「导出」。若磁盘上仍是上一版加密信封，启动时会尝试解密并写回明文。
 
 ## 技术亮点
 
@@ -123,12 +123,28 @@ mfa.json
 - **硬件加速阴影**: 卡片使用 Fyne v2.8 新增的 `canvas.Shadow`（`DropShadow` 变体），通过 GPU 着色器渲染，性能优于传统软件阴影。
 - **线程安全**: 使用 `sync/atomic` 控制窗口生命周期与强制刷新标记，`sync.RWMutex` 保护 `accounts` / `cards` 切片，账号变更经统一加锁路径写入磁盘。
 - **验证码更新**: `accountCard` 持有 `codeText` 缓存；周期切换时通过 `codeGen` 生成并 `widget.Label.SetText` 局部刷新，避免整表 `Refresh`。`codeGen` 按 `(secret, 周期)` 维度缓存 HMAC 计算结果，搜索重建同周期内不再重复生成。
+- **墙钟对齐刷新**: 刷新协程用自对齐 `time.Timer` 唤醒在整秒，而非从启动时刻起算的固定 `Ticker`，保证周期切换的瞬间就换码，倒计时不产生固定偏移。
 - **密钥标准化**: `NormalizeSecret()` + `ValidateSecret()` 统一处理与校验密钥格式。
 - **输入验证**: Base32 字符集与最小长度校验在 model 层完成，表单字段使用 Fyne v2.8 的 `FormItem.Required` 标记必填。
 - **错误可观测**: 存储层加载/解析失败时通过 `log.Printf` 输出日志；删除保存失败会弹出错误提示。
 - **原子持久化**: `mfa.json` 采用临时文件 + fsync + rename 的原子写入，任何时刻磁盘上都是完整 JSON，崩溃不丢数据。
 
 ## 更新日志
+
+### v2.8 (2026-09-20)
+- ✏️ 卡片菜单：编辑、置顶、上移、下移、删除
+- 📥 导入 otpauth / JSON / 二维码图片 / 屏幕截图 / JSON 备份；导出 otpauth 或 JSON 备份
+- 🪟 记住窗口尺寸与位置；关闭窗口进入系统托盘
+- ⌨️ 全局快捷键 `Ctrl+Alt+M` 显示或隐藏窗口
+- ⏱️ 倒计时对齐墙钟整秒，消除固定 Ticker 最多 1 秒的换码滞后
+- 🧹 移除失效的 `forceCodeGen`；TOTP 周期常量收敛
+- 📄 `mfa.json` 保持明文 JSON（若存在上一版加密文件，启动时会尝试解密并写回明文）
+
+### v2.7 (2026-09-20)
+- ⏱️ 修复倒计时与验证码切换滞后：刷新改用自对齐 Timer 唤醒在墙钟整秒，消除固定 Ticker 带来的至多 1 秒偏移
+- 🧹 移除失效的 `forceCodeGen` 标记（渲染时已置 false，刷新协程永远读不到 true），`appContext` 与 `liveRefresher` 各减一个字段
+- 🧹 `totpPeriod` 常量 + `periodOf` / `progressRatio` 收敛散落在 4 个文件的 6 处 `30`
+- 🧪 新增秒边界对齐与周期换算的单元测试；全量测试通过 `-race` 检测
 
 ### v2.6 (2026-09-20)
 - 🔒 `mfa.json` 改为原子写入（临时文件 + fsync + rename），进程崩溃/断电不再截断密钥文件导致账号全丢

@@ -12,11 +12,32 @@ import (
 )
 
 func showAddAccountDialog(ctx *appContext) {
+	showAccountDialog(ctx, nil)
+}
+
+func showEditAccountDialog(ctx *appContext, existing model.MFAAccount) {
+	showAccountDialog(ctx, &existing)
+}
+
+func showAccountDialog(ctx *appContext, existing *model.MFAAccount) {
+	isEdit := existing != nil
+	title := "添加 MFA 账号"
+	submitLabel := "添加"
+	if isEdit {
+		title = "编辑账号"
+		submitLabel = "保存"
+	}
+
 	nameEntry := widget.NewEntry()
 	nameEntry.SetPlaceHolder("例如: Google")
 
 	secretEntry := widget.NewPasswordEntry()
 	secretEntry.SetPlaceHolder("例如: JBSWY3DPEHPK3PXP")
+
+	if isEdit {
+		nameEntry.SetText(existing.AccountName)
+		secretEntry.SetText(existing.Secret)
+	}
 
 	hint := widget.NewLabel("密钥仅支持 A-Z / 2-7，长度至少 16 位；回车可快速提交")
 	hint.Wrapping = fyne.TextWrapWord
@@ -46,39 +67,52 @@ func showAddAccountDialog(ctx *appContext) {
 			return
 		}
 
-		if dup, msg := ctx.hasDuplicate(accountName, normalized); dup {
+		exceptName, exceptSecret := "", ""
+		if isEdit {
+			exceptName, exceptSecret = existing.AccountName, existing.Secret
+			acc.Pinned = existing.Pinned
+		}
+		if dup, msg := ctx.store.HasDuplicate(accountName, normalized, exceptName, exceptSecret); dup {
 			dialog.NewInformation("提示", msg, ctx.window).Show()
 			return
 		}
 
 		acc.Secret = normalized
-		if err := ctx.addAccount(acc); err != nil {
+		var err error
+		if isEdit {
+			err = ctx.store.Update(existing.AccountName, existing.Secret, acc)
+		} else {
+			err = ctx.store.Add(acc)
+		}
+		if err != nil {
 			dialog.NewInformation("错误", "保存失败: "+err.Error(), ctx.window).Show()
 			return
 		}
 
 		d.Hide()
-		// 清空搜索会触发 OnChanged（受防抖保护）；若本就无搜索词则手动渲染一次以显示新账号。
-		// refreshNow 内部会取消挂起的防抖定时器，确保新卡片立即可见。
-		if ctx.searchEntry != nil && ctx.searchEntry.Text != "" {
+		if !isEdit && ctx.searchEntry != nil && ctx.searchEntry.Text != "" {
 			ctx.searchEntry.SetText("")
 		}
 		if ctx.refreshNow != nil {
 			ctx.refreshNow()
 		}
 		if ctx.showToast != nil {
-			ctx.showToast("已添加「" + accountName + "」")
+			if isEdit {
+				ctx.showToast("已更新「" + accountName + "」")
+			} else {
+				ctx.showToast("已添加「" + accountName + "」")
+			}
 		}
 	}
 
 	cancelBtn := widget.NewButton("取消", func() { d.Hide() })
-	addBtn := widget.NewButton("添加", trySubmit)
-	addBtn.Importance = widget.HighImportance
+	okBtn := widget.NewButton(submitLabel, trySubmit)
+	okBtn.Importance = widget.HighImportance
 
-	buttons := container.NewGridWithColumns(2, cancelBtn, addBtn)
+	buttons := container.NewGridWithColumns(2, cancelBtn, okBtn)
 	body := container.NewPadded(container.NewVBox(form, hint, buttons))
 
-	d = dialog.NewCustomWithoutButtons("添加 MFA 账号", body, ctx.window)
+	d = dialog.NewCustomWithoutButtons(title, body, ctx.window)
 
 	nameEntry.OnSubmitted = func(string) {
 		ctx.window.Canvas().Focus(secretEntry)

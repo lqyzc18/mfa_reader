@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image/color"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -18,7 +17,6 @@ type liveRefresher struct {
 	cardsMu  *sync.RWMutex
 	cards    *[]*accountCard
 	gen      *codeGen
-	force    *atomic.Bool
 	mfaTheme *theme.MFATheme
 
 	lastPeriod int64
@@ -33,26 +31,35 @@ func (r *liveRefresher) snapshot() []*accountCard {
 	return out
 }
 
+// run 在每个整秒唤醒一次。使用自对齐的 Timer 而非固定 Ticker：
+// Ticker 从启动时刻起算，与墙钟秒边界有固定偏移，会让 TOTP 周期切换被延迟至多 1 秒，
+// 期间界面仍显示上一周期的验证码与错误的倒计时。
 func (r *liveRefresher) run(stop <-chan struct{}, windowClosed func() bool) {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
+	timer := time.NewTimer(untilNextSecond(time.Now()))
+	defer timer.Stop()
 
 	r.lastPeriod = -1
 	for {
 		select {
 		case <-stop:
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			r.tick(windowClosed)
+			timer.Reset(untilNextSecond(time.Now()))
 		}
 	}
 }
 
+// untilNextSecond 返回距离下一个整秒的时长，用于把唤醒点对齐到墙钟秒边界。
+func untilNextSecond(now time.Time) time.Duration {
+	return time.Second - time.Duration(now.Nanosecond())*time.Nanosecond
+}
+
 func (r *liveRefresher) tick(windowClosed func() bool) {
 	now := time.Now()
-	period := now.Unix() / 30
+	period := periodOf(now)
 	remain := remainingSeconds(now)
-	progressVal := float64(remain) / 30.0
+	progressVal := progressRatio(remain)
 
 	colorChanged := false
 	if currentColor := theme.GetProgressColor(progressVal); currentColor != r.lastColor {
@@ -61,7 +68,8 @@ func (r *liveRefresher) tick(windowClosed func() bool) {
 		colorChanged = true
 	}
 
-	needCode := r.force.Swap(false) || period != r.lastPeriod
+	// lastPeriod 初始为 -1，首次 tick 必然重新生成一遍验证码。
+	needCode := period != r.lastPeriod
 	r.lastPeriod = period
 	remainText := fmt.Sprintf("%ds", remain)
 

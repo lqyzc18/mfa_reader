@@ -28,19 +28,24 @@ type accountCard struct {
 }
 
 type accountCardOptions struct {
-	account  model.MFAAccount
-	gen      *codeGen
-	now      time.Time
-	mfaTheme *theme.MFATheme
-	onCopy   func(code string)
-	onDelete func()
+	account    model.MFAAccount
+	gen        *codeGen
+	now        time.Time
+	mfaTheme   *theme.MFATheme
+	canvas     fyne.Canvas
+	onCopy     func(code string)
+	onDelete   func()
+	onEdit     func()
+	onPin      func()
+	onMoveUp   func()
+	onMoveDown func()
 }
 
 // newAccountCard 构建一张账号卡片并返回可放入列表的根容器。
 func newAccountCard(o accountCardOptions) (*accountCard, fyne.CanvasObject) {
 	now := o.now
 	remain := remainingSeconds(now)
-	progressVal := float64(remain) / 30.0
+	progressVal := progressRatio(remain)
 	remainText := fmt.Sprintf("%ds", remain)
 
 	normalized := o.account.NormalizeSecret()
@@ -83,11 +88,36 @@ func newAccountCard(o accountCardOptions) (*accountCard, fyne.CanvasObject) {
 	progressRow := container.NewBorder(nil, nil, nil, card.remainLabel,
 		container.NewThemeOverride(card.progress, o.mfaTheme))
 
-	deleteBtn := widget.NewButtonWithIcon("", fyneTheme.DeleteIcon(), o.onDelete)
-	deleteBtn.Importance = widget.LowImportance
+	titleText := o.account.AccountName
+	if o.account.Pinned {
+		titleText = "★ " + titleText
+	}
 
-	header := container.NewBorder(nil, nil, nil, deleteBtn,
-		widget.NewLabelWithStyle(o.account.AccountName, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
+	var more *widget.Button
+	more = widget.NewButtonWithIcon("", fyneTheme.MoreVerticalIcon(), func() {
+		pinLabel := "置顶"
+		if o.account.Pinned {
+			pinLabel = "取消置顶"
+		}
+		m := fyne.NewMenu("",
+			fyne.NewMenuItem(pinLabel, o.onPin),
+			fyne.NewMenuItem("上移", o.onMoveUp),
+			fyne.NewMenuItem("下移", o.onMoveDown),
+			fyne.NewMenuItem("编辑", o.onEdit),
+			fyne.NewMenuItem("删除", o.onDelete),
+		)
+		c := o.canvas
+		if c == nil {
+			c = fyne.CurrentApp().Driver().CanvasForObject(more)
+		}
+		if c != nil {
+			widget.ShowPopUpMenuAtRelativePosition(m, c, fyne.NewPos(0, more.Size().Height), more)
+		}
+	})
+	more.Importance = widget.LowImportance
+
+	header := container.NewBorder(nil, nil, nil, more,
+		widget.NewLabelWithStyle(titleText, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
 
 	content := container.NewVBox(header, largeLabel, progressRow)
 

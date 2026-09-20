@@ -14,51 +14,17 @@ import (
 	fyneTheme "fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
-	"mfa_reader/internal/model"
 	"mfa_reader/internal/storage"
 	"mfa_reader/internal/theme"
 )
 
 type appContext struct {
-	window       fyne.Window
-	accounts     *[]model.MFAAccount
-	accountsMu   *sync.RWMutex
-	searchEntry  *widget.Entry
-	refreshNow   func()
-	forceCodeGen *atomic.Bool
-	showToast    func(string)
-}
-
-func (ctx *appContext) snapshotAccounts() []model.MFAAccount {
-	ctx.accountsMu.RLock()
-	defer ctx.accountsMu.RUnlock()
-	out := make([]model.MFAAccount, len(*ctx.accounts))
-	copy(out, *ctx.accounts)
-	return out
-}
-
-func (ctx *appContext) addAccount(acc model.MFAAccount) error {
-	ctx.accountsMu.Lock()
-	*ctx.accounts = append(*ctx.accounts, acc)
-	toSave := make([]model.MFAAccount, len(*ctx.accounts))
-	copy(toSave, *ctx.accounts)
-	ctx.accountsMu.Unlock()
-	return storage.SaveMFAAccounts(toSave)
-}
-
-func (ctx *appContext) deleteAccount(name, secret string) error {
-	ctx.accountsMu.Lock()
-	accounts := *ctx.accounts
-	for i, a := range accounts {
-		if a.AccountName == name && a.Secret == secret {
-			*ctx.accounts = append(accounts[:i], accounts[i+1:]...)
-			break
-		}
-	}
-	toSave := make([]model.MFAAccount, len(*ctx.accounts))
-	copy(toSave, *ctx.accounts)
-	ctx.accountsMu.Unlock()
-	return storage.SaveMFAAccounts(toSave)
+	app         fyne.App
+	window      fyne.Window
+	store       *storage.Store
+	searchEntry *widget.Entry
+	refreshNow  func()
+	showToast   func(string)
 }
 
 func (ctx *appContext) currentFilter() string {
@@ -68,28 +34,18 @@ func (ctx *appContext) currentFilter() string {
 	return ctx.searchEntry.Text
 }
 
-func (ctx *appContext) hasDuplicate(name, secret string) (bool, string) {
-	for _, a := range ctx.snapshotAccounts() {
-		if a.Secret == secret {
-			return true, "该密钥已存在（账号: " + a.AccountName + "）"
-		}
-		if strings.EqualFold(a.AccountName, name) {
-			return true, "账号名称已存在"
-		}
-	}
-	return false, ""
+func SetupMainWindow(a fyne.App, w fyne.Window, store *storage.Store) {
+	restoreWindowSize(w, a.Preferences())
+	attachDesktop(a, w)
+	buildMainUI(a, w, store)
 }
 
-func SetupMainWindow(myWindow fyne.Window, initialAccounts []model.MFAAccount) {
+func buildMainUI(a fyne.App, myWindow fyne.Window, store *storage.Store) {
 	stopCh := make(chan struct{})
 	var windowClosed atomic.Bool
-	var forceCodeGen atomic.Bool
-	forceCodeGen.Store(true)
-
-	accounts := initialAccounts
-	var accountsMu sync.RWMutex
 
 	myWindow.SetOnClosed(func() {
+		saveWindowState(myWindow, a.Preferences())
 		windowClosed.Store(true)
 		close(stopCh)
 	})
@@ -176,26 +132,24 @@ func SetupMainWindow(myWindow fyne.Window, initialAccounts []model.MFAAccount) {
 	)
 
 	ctx := &appContext{
-		window:       myWindow,
-		accounts:     &accounts,
-		accountsMu:   &accountsMu,
-		searchEntry:  searchEntry,
-		forceCodeGen: &forceCodeGen,
-		showToast:    showToast,
+		app:         a,
+		window:      myWindow,
+		store:       store,
+		searchEntry: searchEntry,
+		showToast:   showToast,
 	}
 
 	var cardsMu sync.RWMutex
 	cards := []*accountCard{}
 
-	// renderList 是唯一重建列表的地方；验证码经 codeGen 缓存，同周期重建不重复计算。
 	var renderList func(filter string)
 	renderList = func(filter string) {
 		listVBox.Objects = nil
 
-		accountsCopy := ctx.snapshotAccounts()
+		accountsCopy := ctx.store.Snapshot()
 		matched := 0
 		now := time.Now()
-		mfaTheme.SetPrimaryColor(theme.GetProgressColor(float64(remainingSeconds(now)) / 30.0))
+		mfaTheme.SetPrimaryColor(theme.GetProgressColor(progressRatio(remainingSeconds(now))))
 
 		cardsMu.Lock()
 		cards = cards[:0]
@@ -211,6 +165,7 @@ func SetupMainWindow(myWindow fyne.Window, initialAccounts []model.MFAAccount) {
 				gen:      gen,
 				now:      now,
 				mfaTheme: mfaTheme,
+				canvas:   myWindow.Canvas(),
 				onCopy: func(code string) {
 					myWindow.Clipboard().SetContent(strings.ReplaceAll(code, " ", ""))
 					showToast("已复制  " + code)
@@ -220,13 +175,35 @@ func SetupMainWindow(myWindow fyne.Window, initialAccounts []model.MFAAccount) {
 						if !b {
 							return
 						}
-						if err := ctx.deleteAccount(currentAcc.AccountName, currentAcc.Secret); err != nil {
+						if err := ctx.store.Delete(currentAcc.AccountName, currentAcc.Secret); err != nil {
 							dialog.NewInformation("错误", "保存失败: "+err.Error(), myWindow).Show()
 							return
 						}
 						showToast("已删除「" + currentAcc.AccountName + "」")
 						renderList(ctx.currentFilter())
 					}, myWindow)
+				},
+				onEdit: func() {
+					showEditAccountDialog(ctx, currentAcc)
+				},
+				onPin: func() {
+					if err := ctx.store.TogglePin(currentAcc.AccountName, currentAcc.Secret); err != nil {
+						dialog.NewInformation("错误", err.Error(), myWindow).Show()
+						return
+					}
+					renderList(ctx.currentFilter())
+				},
+				onMoveUp: func() {
+					if err := ctx.store.Move(currentAcc.AccountName, currentAcc.Secret, -1); err != nil {
+						return
+					}
+					renderList(ctx.currentFilter())
+				},
+				onMoveDown: func() {
+					if err := ctx.store.Move(currentAcc.AccountName, currentAcc.Secret, 1); err != nil {
+						return
+					}
+					renderList(ctx.currentFilter())
 				},
 			})
 			listVBox.Add(root)
@@ -243,13 +220,10 @@ func SetupMainWindow(myWindow fyne.Window, initialAccounts []model.MFAAccount) {
 			emptySearchHint.Show()
 		}
 
-		forceCodeGen.Store(false)
 		listVBox.Refresh()
 		listStack.Refresh()
 	}
 
-	// 搜索输入防抖：按键抖动期间只触发最后一次渲染。
-	// 后台 goroutine 通过 fyne.Do 切回 UI 线程再调用 renderList。
 	searchDebouncer := newDebouncer(150*time.Millisecond, func(s string) {
 		fyne.Do(func() {
 			if windowClosed.Load() {
@@ -268,6 +242,18 @@ func SetupMainWindow(myWindow fyne.Window, initialAccounts []model.MFAAccount) {
 	})
 	addBtn.Importance = widget.HighImportance
 
+	var menuBtn *widget.Button
+	menuBtn = widget.NewButtonWithIcon("", fyneTheme.MenuIcon(), func() {
+		m := fyne.NewMenu("",
+			fyne.NewMenuItem("导入...", func() { showImportDialog(ctx) }),
+			fyne.NewMenuItem("导出...", func() { showExportDialog(ctx) }),
+			fyne.NewMenuItem("关于", func() {
+				dialog.NewInformation("虚拟MFA", "全局快捷键 Ctrl+Alt+M 显示或隐藏窗口。\n关闭窗口会最小化到托盘，从托盘选「退出」才会真正退出。", myWindow).Show()
+			}),
+		)
+		widget.ShowPopUpMenuAtRelativePosition(m, myWindow.Canvas(), fyne.NewPos(0, menuBtn.Size().Height), menuBtn)
+	})
+
 	renderList("")
 
 	searchEntry.OnChanged = func(s string) {
@@ -282,7 +268,8 @@ func SetupMainWindow(myWindow fyne.Window, initialAccounts []model.MFAAccount) {
 	scrollList := container.NewVScroll(listStack)
 
 	searchContainer := container.NewPadded(searchEntry)
-	topBar := container.NewBorder(nil, nil, nil, addBtn, searchContainer)
+	rightBtns := container.NewHBox(addBtn)
+	topBar := container.NewBorder(nil, nil, menuBtn, rightBtns, searchContainer)
 	topBarContainer := container.NewPadded(topBar)
 
 	toastBar := container.NewPadded(toastBox)
@@ -300,7 +287,6 @@ func SetupMainWindow(myWindow fyne.Window, initialAccounts []model.MFAAccount) {
 		cardsMu:  &cardsMu,
 		cards:    &cards,
 		gen:      gen,
-		force:    &forceCodeGen,
 		mfaTheme: mfaTheme,
 	}
 	go refresher.run(stopCh, func() bool { return windowClosed.Load() })

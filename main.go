@@ -3,8 +3,8 @@ package main
 import (
 	"os"
 
-	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/dialog"
 
 	"mfa_reader/internal/storage"
 	"mfa_reader/internal/theme"
@@ -30,14 +30,19 @@ func init() {
 }
 
 func main() {
-	myApp := app.New()
+	myApp := app.NewWithID("com.lqyzc18.mfa_reader")
 	myApp.SetIcon(theme.LoadIcon())
 
 	myWindow := myApp.NewWindow("虚拟MFA")
-	myWindow.Resize(fyne.NewSize(400, 700))
 
-	accounts := storage.LoadMFAAccounts()
-	ui.SetupMainWindow(myWindow, accounts)
+	store, err := storage.Open()
+	if err != nil {
+		ui.SetupMainWindow(myApp, myWindow, storage.NewEmpty())
+		dialog.NewInformation("数据文件错误", err.Error()+"\n\n将以空列表启动。", myWindow).Show()
+		myWindow.ShowAndRun()
+		return
+	}
 
+	ui.SetupMainWindow(myApp, myWindow, store)
 	myWindow.ShowAndRun()
 }

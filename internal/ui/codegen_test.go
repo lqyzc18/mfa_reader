@@ -46,6 +46,59 @@ func TestRemainingSeconds(t *testing.T) {
 	}
 }
 
+func TestUntilNextSecond(t *testing.T) {
+	cases := []struct {
+		name string
+		nsec int
+		want time.Duration
+	}{
+		{name: "整秒", nsec: 0, want: time.Second},
+		{name: "刚过整秒", nsec: 1e6, want: 999 * time.Millisecond},
+		{name: "半秒", nsec: 5e8, want: 500 * time.Millisecond},
+		{name: "临近下一秒", nsec: 999999999, want: time.Nanosecond},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			now := time.Unix(1000000, int64(c.nsec))
+			if got := untilNextSecond(now); got != c.want {
+				t.Fatalf("untilNextSecond(nsec=%d) = %v, want %v", c.nsec, got, c.want)
+			}
+			// 对齐后的唤醒点必须恰好落在整秒上。
+			if next := now.Add(untilNextSecond(now)); next.Nanosecond() != 0 {
+				t.Fatalf("aligned wakeup has nsec=%d, want 0", next.Nanosecond())
+			}
+		})
+	}
+}
+
+func TestPeriodAndProgress(t *testing.T) {
+	// unix 1000020 % 30 == 0，是周期起点。
+	start := time.Unix(1000020, 0)
+	if p := periodOf(start); p != 1000020/totpPeriod {
+		t.Fatalf("periodOf(start) = %d, want %d", p, 1000020/totpPeriod)
+	}
+	if r := remainingSeconds(start); r != totpPeriod {
+		t.Fatalf("remainingSeconds(start) = %d, want %d", r, totpPeriod)
+	}
+	if g := progressRatio(remainingSeconds(start)); g != 1.0 {
+		t.Fatalf("progressRatio at period start = %v, want 1.0", g)
+	}
+
+	// 周期最后一秒：剩余 1 秒，且仍属于同一周期。
+	last := time.Unix(1000020+totpPeriod-1, 0)
+	if periodOf(last) != periodOf(start) {
+		t.Fatal("last second should stay in the same period")
+	}
+	if r := remainingSeconds(last); r != 1 {
+		t.Fatalf("remainingSeconds(last) = %d, want 1", r)
+	}
+
+	// 跨过边界即进入下一周期。
+	if periodOf(last.Add(time.Second)) != periodOf(start)+1 {
+		t.Fatal("crossing the boundary should advance the period")
+	}
+}
+
 func TestCodeGenCache(t *testing.T) {
 	const secret = "JBSWY3DPEHPK3PXP"
 	now := time.Unix(1000000, 0)

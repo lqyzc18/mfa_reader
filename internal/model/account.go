@@ -13,6 +13,7 @@ var base32Regex = regexp.MustCompile(`^[A-Z2-7]+$`)
 type MFAAccount struct {
 	AccountName string `json:"accountName"`
 	Secret      string `json:"secret"`
+	Pinned      bool   `json:"pinned,omitempty"`
 }
 
 // secretReplacer 去除密钥中的分隔符（空格与横线），包级复用避免每次调用重复构建。

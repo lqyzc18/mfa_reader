@@ -1,0 +1,80 @@
+.gitattributes
+  h_70ac94e3a63664 1-11
+.gitignore
+  h_70ac94e3a63664 6,11
+FyneApp.toml
+  h_70ac94e3a63664 7-8
+README.md
+  h_70ac94e3a63664 11-13,15-17,21-23,33,37,121,125-129,131-133,138-151,155,157-159,162-163
+go.mod
+  h_70ac94e3a63664 7
+internal/cryptutil/aes.go
+  h_70ac94e3a63664 11,13
+internal/model/account.go
+  h_70ac94e3a63664 4,12-33,39-42,62-65,70-161
+internal/model/account_test.go
+  h_70ac94e3a63664 111-211
+internal/model/sort.go
+  h_70ac94e3a63664 15-17,20,23,26
+internal/model/sort_test.go
+  h_70ac94e3a63664 17-19,25-26,29-33
+internal/qrscan/decode.go
+  h_70ac94e3a63664 9,16,19-21,29-34,42,44-56,66,71-81
+internal/qrscan/decode_test.go
+  h_70ac94e3a63664 1-65
+internal/singleinstance/singleinstance_other.go
+  h_70ac94e3a63664 1-13
+internal/singleinstance/singleinstance_windows.go
+  h_70ac94e3a63664 1-43
+internal/singleinstance/singleinstance_windows_test.go
+  h_70ac94e3a63664 1-48
+internal/storage/file.go
+  h_70ac94e3a63664 4,9-10,13-24,26-49,70
+internal/storage/otpauth.go
+  h_70ac94e3a63664 7,15-20,27,64,86-97,99,102,107-117,130,136,142-144
+internal/storage/otpauth_test.go
+  h_70ac94e3a63664 60-117
+internal/storage/store.go
+  h_70ac94e3a63664 7,11,19-21,26-27,38-52,63,75-76,78,80,86,88-97,122,141-153,162-173,177-180,190-193,203-205,215-218,221-223,228,230-235,238-239,243-251,253,257-262,264-289,320,332-334
+internal/storage/store_rollback_test.go
+  h_70ac94e3a63664 1-150
+internal/storage/store_test.go
+  h_70ac94e3a63664 7,143-289
+internal/theme/theme.go
+  h_70ac94e3a63664 24,26-34
+internal/ui/app.go
+  h_70ac94e3a63664 17,57,145-156,173-176,179,191,202,205,208,227-231,239,244,258,264,275,282-286,290,299-301,305-326
+internal/ui/card.go
+  h_70ac94e3a63664 21,23-25,30-34,53-55,58-63,65,71-75,90,96,99,104,153-160,171-176,179-182,186-189,192-195,199-202
+internal/ui/codegen.go
+  h_70ac94e3a63664 4,8,10-11,14-20,23-31,33-35,38-41,45-68,71-72,75,79-80,87,90-92,97,100-108,110-111,113-133
+internal/ui/codegen_test.go
+  h_70ac94e3a63664 7-8,13-17,19-23,27-28,47-48,52-59,88,91-92,94-95,97,102-103,106,111,119,122-123,131,137-138,145-146,150-182
+internal/ui/dialog.go
+  h_70ac94e3a63664 74-75
+internal/ui/importexport.go
+  h_70ac94e3a63664 4,19-25,39,53,63,109,123-124,127-137,145-147,150,158-159,163-169,183-184,190
+internal/ui/refresh.go
+  h_70ac94e3a63664 11,13-15,49-56,58-60,63,65-76,78,80,88
+internal/ui/tray.go
+  h_70ac94e3a63664 13-15,30
+internal/ui/winstate.go
+  h_70ac94e3a63664 9-11,13-17,41,53
+internal/winpos/winpos_stub.go
+  h_70ac94e3a63664 7
+internal/winpos/winpos_windows.go
+  h_70ac94e3a63664 12-17,27,53-63
+main.go
+  h_70ac94e3a63664 4,7,11,15,18-20,28-37,43-52,56-58,62,69-90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "84a5cde0dfbf0e01a39cd0d844a6fba19c660645",
+  "prompts": {},
+  "humans": {
+    "h_70ac94e3a63664": {
+      "author": "luqingyang <luqingyang@xunlei.com>"
+    }
+  }
+}

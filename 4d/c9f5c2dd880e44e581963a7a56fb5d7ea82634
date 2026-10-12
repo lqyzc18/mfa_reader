@@ -1,0 +1,14 @@
+FyneApp.toml
+  h_70ac94e3a63664 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4dc9f5c2dd880e44e581963a7a56fb5d7ea82634",
+  "prompts": {},
+  "humans": {
+    "h_70ac94e3a63664": {
+      "author": "luqingyang <luqingyang@xunlei.com>"
+    }
+  }
+}

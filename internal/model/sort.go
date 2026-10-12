@@ -12,17 +12,18 @@ func SortPinned(accounts []MFAAccount) {
 	})
 }
 
-// MoveAccount 在同一置顶分组内上下移动一项；越界或跨组则原样返回。
-func MoveAccount(accounts []MFAAccount, index, delta int) []MFAAccount {
+// MoveAccount 在同一置顶分组内上下移动一项。
+// 返回移动结果与是否真的发生移动：越界或跨置顶分组时原样返回 false。
+func MoveAccount(accounts []MFAAccount, index, delta int) ([]MFAAccount, bool) {
 	j := index + delta
 	if index < 0 || index >= len(accounts) || j < 0 || j >= len(accounts) {
-		return accounts
+		return accounts, false
 	}
 	if accounts[index].Pinned != accounts[j].Pinned {
-		return accounts
+		return accounts, false
 	}
 	accounts[index], accounts[j] = accounts[j], accounts[index]
-	return accounts
+	return accounts, true
 }
 
 // FindAccount 按名称+密钥定位账号，找不到返回 -1。

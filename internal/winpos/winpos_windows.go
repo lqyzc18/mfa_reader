@@ -9,10 +9,12 @@ import (
 )
 
 var (
-	user32         = windows.NewLazySystemDLL("user32.dll")
-	procFindWindow = user32.NewProc("FindWindowW")
-	procGetRect    = user32.NewProc("GetWindowRect")
-	procSetPos     = user32.NewProc("SetWindowPos")
+	user32            = windows.NewLazySystemDLL("user32.dll")
+	procFindWindow    = user32.NewProc("FindWindowW")
+	procGetRect       = user32.NewProc("GetWindowRect")
+	procSetPos        = user32.NewProc("SetWindowPos")
+	procShowWindow    = user32.NewProc("ShowWindow")
+	procSetForeground = user32.NewProc("SetForegroundWindow")
 )
 
 type rect struct {
@@ -22,6 +24,7 @@ type rect struct {
 const (
 	swpNoZOrder = 0x0004
 	swpNoSize   = 0x0001
+	swRestore   = 9
 )
 
 // Get 按窗口标题读取当前位置。
@@ -45,6 +48,17 @@ func Set(title string, x, y int) {
 		return
 	}
 	procSetPos.Call(hwnd, 0, uintptr(x), uintptr(y), 0, 0, swpNoZOrder|swpNoSize)
+}
+
+// Activate 把窗口还原并置于前台，供「已有实例在运行」时唤起使用。
+func Activate(title string) bool {
+	hwnd := find(title)
+	if hwnd == 0 {
+		return false
+	}
+	procShowWindow.Call(hwnd, swRestore)
+	procSetForeground.Call(hwnd)
+	return true
 }
 
 func find(title string) uintptr {

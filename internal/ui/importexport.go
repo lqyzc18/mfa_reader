@@ -1,8 +1,7 @@
 package ui
 
 import (
-	"io"
-	"os"
+	"encoding/json"
 	"strconv"
 	"time"
 
@@ -15,6 +14,13 @@ import (
 	"mfa_reader/internal/model"
 	"mfa_reader/internal/qrscan"
 	"mfa_reader/internal/storage"
+)
+
+// 截图导入的等待策略：窗口隐藏后等待一次合成器刷新，失败再重试两次。
+const (
+	captureHideDelay  = 250 * time.Millisecond
+	captureRetryDelay = 200 * time.Millisecond
+	captureAttempts   = 3
 )
 
 func showImportDialog(ctx *appContext) {
@@ -30,14 +36,7 @@ func showImportDialog(ctx *appContext) {
 			dialog.NewInformation("导入失败", err.Error(), ctx.window).Show()
 			return
 		}
-		added, skipped, err := ctx.store.Import(accs)
-		if err != nil {
-			dialog.NewInformation("导入失败", err.Error(), ctx.window).Show()
-			return
-		}
-		d.Hide()
-		ctx.refreshNow()
-		ctx.showToast(formatImportResult(added, skipped))
+		finishImport(ctx, d, accs)
 	}
 
 	pasteBtn := widget.NewButton("导入文本", func() {
@@ -51,7 +50,7 @@ func showImportDialog(ctx *appContext) {
 				return
 			}
 			defer rc.Close()
-			text, decErr := qrscan.FromFile(rc.URI().Path())
+			text, decErr := qrscan.FromReader(rc)
 			if decErr != nil {
 				dialog.NewInformation("导入失败", decErr.Error(), ctx.window).Show()
 				return
@@ -61,14 +60,7 @@ func showImportDialog(ctx *appContext) {
 				dialog.NewInformation("导入失败", err.Error(), ctx.window).Show()
 				return
 			}
-			added, skipped, err := ctx.store.Import(accs)
-			if err != nil {
-				dialog.NewInformation("导入失败", err.Error(), ctx.window).Show()
-				return
-			}
-			d.Hide()
-			ctx.refreshNow()
-			ctx.showToast(formatImportResult(added, skipped))
+			finishImport(ctx, d, accs)
 		}, ctx.window)
 		fd.SetFilter(fynestorage.NewExtensionFileFilter([]string{".png", ".jpg", ".jpeg", ".bmp", ".gif"}))
 		fd.Show()
@@ -114,6 +106,7 @@ func showImportDialog(ctx *appContext) {
 	d.Show()
 }
 
+// finishImport 统一收尾：写入账号、关闭父对话框并提示结果。
 func finishImport(ctx *appContext, parent dialog.Dialog, accs []model.MFAAccount) {
 	added, skipped, err := ctx.store.Import(accs)
 	if err != nil {
@@ -127,10 +120,21 @@ func finishImport(ctx *appContext, parent dialog.Dialog, accs []model.MFAAccount
 	ctx.showToast(formatImportResult(added, skipped))
 }
 
+// captureAndImport 隐藏窗口后截屏识别二维码。
+// 隐藏后合成器需要一次刷新才停止绘制，因此首次识别失败时会重试，避免截到窗口残影。
 func captureAndImport(ctx *appContext) {
 	fyne.Do(func() { ctx.window.Hide() })
-	time.Sleep(280 * time.Millisecond)
-	text, err := qrscan.FromDisplays()
+	time.Sleep(captureHideDelay)
+
+	var text string
+	var err error
+	for attempt := 0; attempt < captureAttempts; attempt++ {
+		if text, err = qrscan.FromDisplays(); err == nil {
+			break
+		}
+		time.Sleep(captureRetryDelay)
+	}
+
 	fyne.Do(func() {
 		ctx.window.Show()
 		ctx.window.RequestFocus()
@@ -138,18 +142,12 @@ func captureAndImport(ctx *appContext) {
 			dialog.NewInformation("导入失败", err.Error(), ctx.window).Show()
 			return
 		}
-		accs, err := storage.ParseQRText(text)
-		if err != nil {
-			dialog.NewInformation("导入失败", err.Error(), ctx.window).Show()
+		accs, perr := storage.ParseQRText(text)
+		if perr != nil {
+			dialog.NewInformation("导入失败", perr.Error(), ctx.window).Show()
 			return
 		}
-		added, skipped, err := ctx.store.Import(accs)
-		if err != nil {
-			dialog.NewInformation("导入失败", err.Error(), ctx.window).Show()
-			return
-		}
-		ctx.refreshNow()
-		ctx.showToast(formatImportResult(added, skipped))
+		finishImport(ctx, nil, accs)
 	})
 }
 
@@ -157,31 +155,18 @@ func showExportDialog(ctx *appContext) {
 	var d dialog.Dialog
 
 	otpBtn := widget.NewButton("导出 otpauth 文本", func() {
-		saveTextFile(ctx, "mfa-otpauth.txt", storage.ExportOTPAuth(ctx.store.Snapshot()))
+		snapshot := ctx.store.Snapshot()
+		saveBytesFile(ctx, "mfa-otpauth.txt", []byte(storage.ExportOTPAuth(snapshot)))
 		d.Hide()
 	})
 
-	bakBtn := widget.NewButton("导出 JSON 备份（复制当前数据文件）", func() {
-		src := ctx.store.FilePath()
-		fd := dialog.NewFileSave(func(wc fyne.URIWriteCloser, err error) {
-			if err != nil || wc == nil {
-				return
-			}
-			defer wc.Close()
-			in, err := os.Open(src)
-			if err != nil {
-				dialog.NewInformation("导出失败", err.Error(), ctx.window).Show()
-				return
-			}
-			defer in.Close()
-			if _, err := io.Copy(wc, in); err != nil {
-				dialog.NewInformation("导出失败", err.Error(), ctx.window).Show()
-				return
-			}
-			ctx.showToast("已导出 JSON 备份")
-		}, ctx.window)
-		fd.SetFileName("mfa-backup.json")
-		fd.Show()
+	bakBtn := widget.NewButton("导出 JSON 备份", func() {
+		data, err := json.MarshalIndent(ctx.store.Snapshot(), "", "\t")
+		if err != nil {
+			dialog.NewInformation("导出失败", err.Error(), ctx.window).Show()
+			return
+		}
+		saveBytesFile(ctx, "mfa-backup.json", data)
 		d.Hide()
 	})
 
@@ -195,13 +180,14 @@ func showExportDialog(ctx *appContext) {
 	d.Show()
 }
 
-func saveTextFile(ctx *appContext, name, content string) {
+// saveBytesFile 让用户选择保存位置并写入内容。
+func saveBytesFile(ctx *appContext, name string, content []byte) {
 	fd := dialog.NewFileSave(func(wc fyne.URIWriteCloser, err error) {
 		if err != nil || wc == nil {
 			return
 		}
 		defer wc.Close()
-		if _, err := io.WriteString(wc, content); err != nil {
+		if _, err := wc.Write(content); err != nil {
 			dialog.NewInformation("导出失败", err.Error(), ctx.window).Show()
 			return
 		}

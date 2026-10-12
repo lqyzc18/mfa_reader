@@ -21,9 +21,17 @@ func init() {
 	}
 }
 
-// LoadIcon 加载应用图标：依次在可执行文件目录与当前工作目录查找 icon.png，
-// 兼容快捷方式/计划任务等 CWD 与程序目录不一致的启动方式；都找不到时回退 Fyne 默认图标。
+// LoadIcon 返回应用图标，多次调用只读盘解析一次。
 func LoadIcon() fyne.Resource {
+	return loadIconOnce()
+}
+
+// loadIconOnce 缓存图标资源：应用图标与托盘图标共用同一份，避免重复读盘。
+var loadIconOnce = sync.OnceValue(loadIcon)
+
+// loadIcon 依次在可执行文件目录与当前工作目录查找 icon.png，
+// 兼容快捷方式/计划任务等 CWD 与程序目录不一致的启动方式；都找不到时回退 Fyne 默认图标。
+func loadIcon() fyne.Resource {
 	if p := findIconPath(exeDir(), "."); p != "" {
 		if r, err := fyne.LoadResourceFromPath(p); err == nil {
 			return r
@@ -63,9 +71,7 @@ var (
 	SuccessGreen  = color.RGBA{R: 76, G: 175, B: 80, A: 255}
 	WarningYellow = color.RGBA{R: 255, G: 193, B: 7, A: 255}
 	AlertRed      = color.RGBA{R: 244, G: 67, B: 54, A: 255}
-	Background    = color.RGBA{R: 250, G: 250, B: 250, A: 255}
 	CardBg        = color.RGBA{R: 255, G: 255, B: 255, A: 255}
-	TextPrimary   = color.RGBA{R: 33, G: 33, B: 33, A: 255}
 	TextSecondary = color.RGBA{R: 117, G: 117, B: 117, A: 255}
 )
 

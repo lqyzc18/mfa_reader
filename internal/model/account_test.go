@@ -108,3 +108,104 @@ func TestMatchName(t *testing.T) {
 		t.Error("non-matching filter should not match")
 	}
 }
+
+// Base32 的数据位数只能是 8n、8n+2、8n+4、8n+5、8n+7；
+// 其余长度虽然字符集合法，但无法解码，必须在保存前拦截。
+func TestValidateSecretBase32Lengths(t *testing.T) {
+	alphabet := "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+	for length := 16; length <= 24; length++ {
+		secret := ""
+		for i := 0; i < length; i++ {
+			secret += string(alphabet[i%32])
+		}
+		err := ValidateSecret(secret)
+		decodeInvalid := length%8 == 1 || length%8 == 3 || length%8 == 6
+		if decodeInvalid && err == nil {
+			t.Errorf("len=%d: 无法解码的密钥应被拒绝", length)
+		}
+		if !decodeInvalid && err != nil {
+			t.Errorf("len=%d: 合法密钥被误拒: %v", length, err)
+		}
+	}
+}
+
+func TestNormalizeParams(t *testing.T) {
+	// 零值补标准默认。
+	acc := MFAAccount{Secret: "JBSWY3DPEHPK3PXP"}
+	if err := acc.NormalizeParams(); err != nil {
+		t.Fatalf("default params: %v", err)
+	}
+	if acc.Digits != DefaultDigits || acc.Period != DefaultPeriod || acc.Algorithm != DefaultAlgorithm {
+		t.Fatalf("defaults not applied: %+v", acc)
+	}
+
+	// 小写算法名归一为大写。
+	custom := MFAAccount{Secret: "JBSWY3DPEHPK3PXP", Digits: 8, Period: 60, Algorithm: " sha256 "}
+	if err := custom.NormalizeParams(); err != nil {
+		t.Fatalf("custom params: %v", err)
+	}
+	if custom.Digits != 8 || custom.Period != 60 || custom.Algorithm != "SHA256" {
+		t.Fatalf("custom params not normalized: %+v", custom)
+	}
+
+	// 非法取值必须报错，且不改动账号。
+	cases := []struct {
+		name string
+		acc  MFAAccount
+	}{
+		{name: "位数不支持", acc: MFAAccount{Digits: 7}},
+		{name: "周期过小", acc: MFAAccount{Period: -1}},
+		{name: "周期过大", acc: MFAAccount{Period: 3600}},
+		{name: "算法不支持", acc: MFAAccount{Algorithm: "MD5"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			before := c.acc
+			if err := c.acc.NormalizeParams(); err == nil {
+				t.Fatal("expected error")
+			}
+			if c.acc != before {
+				t.Fatalf("校验失败时不应改动账号: %+v", c.acc)
+			}
+		})
+	}
+}
+
+func TestParamsSummary(t *testing.T) {
+	cases := []struct {
+		name string
+		acc  MFAAccount
+		want string
+	}{
+		{name: "标准参数无摘要", acc: MFAAccount{}, want: ""},
+		{name: "八位", acc: MFAAccount{Digits: 8}, want: "8位"},
+		{name: "六十秒", acc: MFAAccount{Period: 60}, want: "60s"},
+		{name: "算法", acc: MFAAccount{Algorithm: "SHA256"}, want: "SHA256"},
+		{name: "组合", acc: MFAAccount{Digits: 8, Period: 60, Algorithm: "SHA512"}, want: "SHA512 / 60s / 8位"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := c.acc.ParamsSummary(); got != c.want {
+				t.Fatalf("ParamsSummary() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestEffectiveParams(t *testing.T) {
+	var zero MFAAccount
+	if zero.EffectiveDigits() != DefaultDigits || zero.EffectivePeriod() != DefaultPeriod || zero.EffectiveAlgorithm() != DefaultAlgorithm {
+		t.Fatalf("zero value should fall back to defaults: %+v", zero)
+	}
+	if !zero.IsDefaultParams() {
+		t.Fatal("zero value should count as default params")
+	}
+
+	custom := MFAAccount{Digits: 8, Period: 60, Algorithm: "sha512"}
+	if custom.IsDefaultParams() {
+		t.Fatal("custom params should not count as default")
+	}
+	if custom.EffectiveAlgorithm() != "SHA512" {
+		t.Fatalf("EffectiveAlgorithm() = %q", custom.EffectiveAlgorithm())
+	}
+}

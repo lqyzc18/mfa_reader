@@ -1,26 +1,18 @@
 package ui
 
 import (
-	"fmt"
-	"image/color"
 	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
-
-	"mfa_reader/internal/theme"
 )
 
 // liveRefresher 每秒驱动列表卡片刷新验证码、进度条与剩余秒数。
-// 设计为可在 SetupMainWindow 之外独立启动，逻辑不与具体窗口布局耦合。
+// 每张卡片的周期长度可能不同（30 秒 / 60 秒），因此逐卡判断是否需要重新出码。
 type liveRefresher struct {
-	cardsMu  *sync.RWMutex
-	cards    *[]*accountCard
-	gen      *codeGen
-	mfaTheme *theme.MFATheme
-
-	lastPeriod int64
-	lastColor  color.Color
+	cardsMu *sync.RWMutex
+	cards   *[]*accountCard
+	gen     *codeGen
 }
 
 func (r *liveRefresher) snapshot() []*accountCard {
@@ -38,7 +30,6 @@ func (r *liveRefresher) run(stop <-chan struct{}, windowClosed func() bool) {
 	timer := time.NewTimer(untilNextSecond(time.Now()))
 	defer timer.Stop()
 
-	r.lastPeriod = -1
 	for {
 		select {
 		case <-stop:
@@ -55,40 +46,38 @@ func untilNextSecond(now time.Time) time.Duration {
 	return time.Second - time.Duration(now.Nanosecond())*time.Nanosecond
 }
 
+// cardUpdate 描述一张卡片本秒需要应用的变更：由刷新 goroutine 计算，UI 线程落地。
+type cardUpdate struct {
+	card    *accountCard
+	code    string
+	newCode bool
+	ratio   float64
+	remain  int
+}
+
 func (r *liveRefresher) tick(windowClosed func() bool) {
+	if windowClosed() {
+		return
+	}
+
 	now := time.Now()
-	period := periodOf(now)
-	remain := remainingSeconds(now)
-	progressVal := progressRatio(remain)
-
-	colorChanged := false
-	if currentColor := theme.GetProgressColor(progressVal); currentColor != r.lastColor {
-		r.lastColor = currentColor
-		r.mfaTheme.SetPrimaryColor(currentColor)
-		colorChanged = true
-	}
-
-	// lastPeriod 初始为 -1，首次 tick 必然重新生成一遍验证码。
-	needCode := period != r.lastPeriod
-	r.lastPeriod = period
-	remainText := fmt.Sprintf("%ds", remain)
-
-	type itemUpdate struct {
-		card    *accountCard
-		code    string
-		newCode bool
-	}
-
 	cards := r.snapshot()
-	updates := make([]itemUpdate, len(cards))
-	for i, card := range cards {
-		u := itemUpdate{card: card}
-		if needCode {
-			// HMAC 计算放在后台 goroutine，避免阻塞 UI。
-			u.code = r.gen.Text(card.secret, now)
-			u.newCode = true
+	updates := make([]cardUpdate, 0, len(cards))
+
+	for _, card := range cards {
+		remain := remainingSeconds(now, card.period)
+		u := cardUpdate{
+			card:   card,
+			ratio:  progressRatio(remain, card.period),
+			remain: remain,
 		}
-		updates[i] = u
+		// 卡片进入新周期时重新出码；HMAC 计算在后台 goroutine 完成，避免阻塞 UI。
+		if index := periodOf(now, card.period); index != card.lastIndex {
+			u.code = r.gen.Text(card.req, now)
+			u.newCode = true
+			card.lastIndex = index
+		}
+		updates = append(updates, u)
 	}
 
 	fyne.Do(func() {
@@ -96,10 +85,7 @@ func (r *liveRefresher) tick(windowClosed func() bool) {
 			return
 		}
 		for _, u := range updates {
-			if u.newCode {
-				u.card.SetCode(u.code)
-			}
-			u.card.setCountdown(progressVal, remainText, colorChanged)
+			u.card.apply(u.code, u.newCode, u.ratio, u.remain)
 		}
 	})
 }

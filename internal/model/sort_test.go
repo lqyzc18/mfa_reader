@@ -14,16 +14,22 @@ func TestSortPinnedAndMove(t *testing.T) {
 		t.Fatalf("pinned order: %+v", accs)
 	}
 
-	accs = MoveAccount(accs, 0, 1)
-	if accs[0].AccountName != "d" || accs[1].AccountName != "b" {
+	moved := false
+	accs, moved = MoveAccount(accs, 0, 1)
+	if !moved || accs[0].AccountName != "d" || accs[1].AccountName != "b" {
 		t.Fatalf("move within pinned: %+v", accs)
 	}
 
 	// 跨组不应移动
 	before := accs[1].AccountName
-	accs = MoveAccount(accs, 1, 1)
-	if accs[1].AccountName != before {
+	accs, moved = MoveAccount(accs, 1, 1)
+	if moved || accs[1].AccountName != before {
 		t.Fatalf("should not cross pin group: %+v", accs)
+	}
+
+	// 越界同样不移动
+	if _, moved = MoveAccount(accs, 0, -1); moved {
+		t.Fatal("out-of-range move should report false")
 	}
 }
 

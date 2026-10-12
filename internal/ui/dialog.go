@@ -71,6 +71,8 @@ func showAccountDialog(ctx *appContext, existing *model.MFAAccount) {
 		if isEdit {
 			exceptName, exceptSecret = existing.AccountName, existing.Secret
 			acc.Pinned = existing.Pinned
+			// 位数/周期/算法来自 otpauth 链接，编辑名称或密钥时保持原取值。
+			acc.Digits, acc.Period, acc.Algorithm = existing.Digits, existing.Period, existing.Algorithm
 		}
 		if dup, msg := ctx.store.HasDuplicate(accountName, normalized, exceptName, exceptSecret); dup {
 			dialog.NewInformation("提示", msg, ctx.window).Show()

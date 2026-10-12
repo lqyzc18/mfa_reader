@@ -10,7 +10,9 @@ import (
 	"mfa_reader/internal/theme"
 )
 
-func attachDesktop(a fyne.App, w fyne.Window) func() {
+// attachDesktop 装配系统托盘与全局热键：关闭窗口即退出程序，
+// 需要临时收起窗口时用快捷键 Ctrl+Alt+M 隐藏，再从快捷键或托盘菜单恢复。
+func attachDesktop(a fyne.App, w fyne.Window) {
 	hidden := false
 	show := func() {
 		hidden = false
@@ -23,17 +25,12 @@ func attachDesktop(a fyne.App, w fyne.Window) func() {
 		w.Hide()
 	}
 
-	w.SetCloseIntercept(func() {
-		hide()
-	})
-
 	if desk, ok := a.(desktop.App); ok {
 		desk.SetSystemTrayIcon(theme.LoadIcon())
-		desk.SetSystemTrayMenu(fyne.NewMenu("虚拟MFA",
+		desk.SetSystemTrayMenu(fyne.NewMenu(WindowTitle,
 			fyne.NewMenuItem("显示", show),
 			fyne.NewMenuItem("退出", func() {
 				saveWindowState(w, a.Preferences())
-				w.SetCloseIntercept(nil)
 				a.Quit()
 			}),
 		))
@@ -60,6 +57,4 @@ func attachDesktop(a fyne.App, w fyne.Window) func() {
 		saveWindowState(w, a.Preferences())
 		stopHotkey()
 	})
-
-	return stopHotkey
 }

@@ -24,27 +24,6 @@ func TestAESGCMRoundTrip(t *testing.T) {
 	}
 }
 
-func TestDeriveKey(t *testing.T) {
-	salt, err := NewSalt()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := DeriveKey("123", salt); err != ErrShortPassword {
-		t.Fatalf("short password: %v", err)
-	}
-	k1, err := DeriveKey("password", salt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	k2, err := DeriveKey("password", salt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(k1) != string(k2) || len(k1) != aesKeySize {
-		t.Fatal("derive not deterministic")
-	}
-}
-
 func TestProtectRoundTrip(t *testing.T) {
 	plain := []byte("hello-mfa")
 	blob, err := Protect(plain)

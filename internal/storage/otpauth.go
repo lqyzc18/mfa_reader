@@ -4,11 +4,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/pquerna/otp"
 
 	"mfa_reader/internal/model"
+)
+
+// 导入时的兜底名称：名称重复由 Store.Import 自动追加序号解决。
+const (
+	scannedAccountName = "扫码导入"
+	unnamedAccountName = "未命名账号"
 )
 
 // ParseQRText 解析扫码结果：otpauth 链接，或纯 Base32 密钥。
@@ -17,7 +24,7 @@ func ParseQRText(text string) ([]model.MFAAccount, error) {
 	if strings.HasPrefix(strings.ToLower(text), "otpauth://") {
 		return ParseImportText(text)
 	}
-	acc := model.MFAAccount{AccountName: "扫码导入", Secret: text}
+	acc := model.MFAAccount{AccountName: scannedAccountName, Secret: text}
 	return normalizeImported([]model.MFAAccount{acc})
 }
 
@@ -54,7 +61,7 @@ func ParseImportText(text string) ([]model.MFAAccount, error) {
 	return normalizeImported(accs)
 }
 
-// ParseOTPAuth 解析单条 otpauth://totp/... 链接。
+// ParseOTPAuth 解析单条 otpauth://totp/... 链接，并保留其中的位数、周期与算法参数。
 func ParseOTPAuth(uri string) (model.MFAAccount, error) {
 	key, err := otp.NewKeyFromURL(strings.TrimSpace(uri))
 	if err != nil {
@@ -76,16 +83,38 @@ func ParseOTPAuth(uri string) (model.MFAAccount, error) {
 		}
 	}
 	if name == "" {
-		name = "未命名账号"
+		name = unnamedAccountName
 	}
-	return model.MFAAccount{AccountName: name, Secret: secret}, nil
+
+	acc := model.MFAAccount{
+		AccountName: name,
+		Secret:      secret,
+		Digits:      int(key.Digits()),
+		Period:      int(key.Period()),
+		Algorithm:   key.Algorithm().String(),
+	}
+	if err := acc.NormalizeParams(); err != nil {
+		return model.MFAAccount{}, fmt.Errorf("无效的 otpauth 参数: %w", err)
+	}
+	return acc, nil
 }
 
-// FormatOTPAuth 把账号写成标准 otpauth URI。
+// FormatOTPAuth 把账号写成标准 otpauth URI，非标准参数（位数/周期/算法）一并写出。
 func FormatOTPAuth(acc model.MFAAccount) string {
 	label := url.PathEscape(acc.AccountName)
 	q := url.Values{}
 	q.Set("secret", acc.Secret)
+	if !acc.IsDefaultParams() {
+		if digits := acc.EffectiveDigits(); digits != model.DefaultDigits {
+			q.Set("digits", strconv.Itoa(digits))
+		}
+		if period := acc.EffectivePeriod(); period != model.DefaultPeriod {
+			q.Set("period", strconv.Itoa(period))
+		}
+		if algorithm := acc.EffectiveAlgorithm(); algorithm != model.DefaultAlgorithm {
+			q.Set("algorithm", strings.ToLower(algorithm))
+		}
+	}
 	return "otpauth://totp/" + label + "?" + q.Encode()
 }
 
@@ -98,15 +127,19 @@ func ExportOTPAuth(accounts []model.MFAAccount) string {
 	return strings.Join(lines, "\n")
 }
 
+// normalizeImported 统一清洗导入内容：名称补默认、密钥标准化并校验、OTP 参数补全。
 func normalizeImported(accs []model.MFAAccount) ([]model.MFAAccount, error) {
 	out := make([]model.MFAAccount, 0, len(accs))
 	for _, acc := range accs {
 		acc.AccountName = strings.TrimSpace(acc.AccountName)
 		if acc.AccountName == "" {
-			acc.AccountName = "未命名账号"
+			acc.AccountName = unnamedAccountName
 		}
 		acc.Secret = acc.NormalizeSecret()
 		if err := model.ValidateSecret(acc.Secret); err != nil {
+			return nil, fmt.Errorf("账号「%s」: %w", acc.AccountName, err)
+		}
+		if err := acc.NormalizeParams(); err != nil {
 			return nil, fmt.Errorf("账号「%s」: %w", acc.AccountName, err)
 		}
 		out = append(out, acc)

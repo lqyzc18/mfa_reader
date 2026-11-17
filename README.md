@@ -225,5 +225,5 @@ mfa.json
 
 ## 依赖库
 
-- [fyne.io/fyne/v2](https://github.com/fyne-io/fyne) - 跨平台 UI 框架（v2.8.0）
+- [fyne.io/fyne/v2](https://github.com/fyne-io/fyne) - 跨平台 UI 框架（v2.8.2）
 - [github.com/pquerna/otp](https://github.com/pquerna/otp) - TOTP 验证码生成库
